@@ -723,11 +723,12 @@ body.dark-theme .dropdown-menu {
 main {
     flex: 1;
     overflow-y: auto;
-    padding: 0 40px 40px;
+    padding: 0 24px 40px;
     direction: rtl;
     scrollbar-color: rgba(110, 110, 115, 0.45) transparent;
     scrollbar-width: thin;
 }
+
 
 main::-webkit-scrollbar {
     width: 8px;
@@ -746,90 +747,248 @@ main::-webkit-scrollbar-thumb:hover {
     background: rgba(110, 110, 115, 0.55);
 }
 
+/* Submissions List */
 .submissions-list {
-    display: flex;
-    flex-direction: column;
-    gap: 32px;
     direction: ltr;
+    padding-top: 12px;
 }
 
-/* Student Group */
-.student-group {
+/* ============================
+   Grading Table
+   ============================ */
+.grading-table {
+    --gt-columns: 200px 130px 1fr 1fr;
+    --gt-gap: 6px;
+    --cell-bg: var(--color-bg);
+    --cell-border: rgba(0, 0, 0, 0.13);
+    --cell-radius: 10px;
+    --cell-height: 40px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
 }
 
-.student-header-box {
-    display: inline-flex;
+body.dark-theme .grading-table {
+    --cell-bg: rgba(255, 255, 255, 0.04);
+    --cell-border: rgba(255, 255, 255, 0.10);
+}
+
+/* Sticky Header */
+.grading-header {
+    display: grid;
+    grid-template-columns: var(--gt-columns);
+    gap: var(--gt-gap);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 0 0 8px;
+    z-index: 100;
+    background: var(--color-page-bg);
+    padding-bottom: 12px;
+    margin-bottom: 4px;
+}
+
+.grading-header .grading-row {
+    position: relative;
+    user-select: none;
+}
+
+.grading-header .grading-cell {
+    background: rgba(0, 0, 0, 0.04);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    border-color: transparent;
+    position: relative;
+    border-radius: var(--cell-radius);
+    padding: 10px 16px;
+    min-height: var(--cell-height);
+    display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 16px;
-    border: 2px solid #000;
-    border-radius: 8px;
-    background: var(--color-bg);
-    align-self: flex-start;
+}
+
+body.dark-theme .grading-header .grading-cell {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* Resizer Handle */
+.resizer {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+    transition: background var(--transition-fast);
+    border-radius: 4px;
+}
+
+.resizer:hover,
+.resizer.is-resizing {
+    background: var(--color-accent);
+}
+
+.resizer::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 20%;
+    bottom: 20%;
+    width: 1px;
+    background: rgba(0, 0, 0, 0.1);
+    transform: translateX(-0.5px);
+}
+
+body.dark-theme .resizer::after {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.resizer:hover::after,
+.resizer.is-resizing::after {
+    background: white;
+}
+
+/* Body */
+.grading-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gt-gap);
+}
+
+/* Student Block (groups rows for one student) */
+.student-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gt-gap);
+}
+
+/* Row */
+.grading-row {
+    display: grid;
+    grid-template-columns: var(--gt-columns);
+    gap: var(--gt-gap);
+    align-items: center;
+}
+
+/* Collapsible rows wrapper — JS drives per-row stagger animations */
+.collapsible-rows-container {
+    display: none;
+    flex-direction: column;
+    gap: var(--gt-gap);
+}
+
+.collapsible-rows-container.is-open {
+    display: flex;
+}
+
+/* Sub-rows: name cell starts at column 2, no student cell placeholder */
+.grading-row.sub-row > .name-cell {
+    grid-column-start: 2;
+}
+
+/* ============================
+   Grading Cells
+   ============================ */
+.grading-cell {
+    background: var(--cell-bg);
+    border: 1.5px solid var(--cell-border);
+    border-radius: var(--cell-radius);
+    padding: 0 14px;
+    font-size: 13px;
+    min-height: var(--cell-height);
+    display: flex;
+    align-items: center;
+    transition:
+        border-color var(--transition-fast),
+        background var(--transition-fast),
+        box-shadow var(--transition-fast);
+}
+
+/* Student Cell */
+.student-cell {
+    gap: 8px;
+    cursor: default;
+    overflow: hidden;
+}
+
+.student-cell.clickable {
     cursor: pointer;
 }
 
-body.dark-theme .student-header-box {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.05);
+.student-cell.clickable:hover {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
 }
 
-.student-name {
-    font-weight: 700;
-    color: #ef4444; /* Match red text in sketch */
-}
-
-.answers-container {
-    padding-left: 20px;
+.student-toggle-arrow {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-tertiary);
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    transition: transform var(--transition-smooth), color var(--transition-fast);
+}
+
+.student-block.expanded .student-toggle-arrow {
+    transform: rotate(90deg);
+}
+
+.chevron-svg {
+    width: 10px;
+    height: 10px;
+}
+
+.student-name-text {
+    font-weight: 700;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Name Cell */
+.name-cell .name-text {
+    font-weight: 600;
+    font-size: 12.5px;
+    color: var(--color-text-secondary);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    letter-spacing: 0.2px;
+}
+
+/* Audio Cell */
+.audio-cell {
+    padding: 0 10px;
+}
+
+.audio-cell .audio-player-compact {
+    display: flex;
+    align-items: center;
     gap: 8px;
-}
-
-/* Answer Row */
-.answer-row {
-    display: grid;
-    grid-template-columns: 140px 240px 1fr;
-    gap: 16px;
-    align-items: center;
-}
-
-.q-label {
-    background: var(--color-bg);
-    border: 2px solid #000;
-    padding: 4px 12px;
-    border-radius: 6px;
-    text-align: center;
-}
-
-body.dark-theme .q-label {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.q-text {
-    font-size: 13px;
-    font-weight: 700;
-    color: #ef4444;
-}
-
-/* Compact Audio Player */
-.audio-player-compact {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+    width: 100%;
 }
 
 .play-mini-btn {
     background: none;
     border: none;
-    font-size: 16px;
+    font-size: 14px;
     cursor: pointer;
     padding: 0;
     color: var(--color-text-primary);
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
+}
+
+.play-mini-btn:hover {
+    color: var(--color-accent);
 }
 
 .scrubber-container {
@@ -842,83 +1001,114 @@ body.dark-theme .q-label {
 .scrubber-track {
     width: 100%;
     height: 2px;
-    background: #000;
+    background: rgba(0, 0, 0, 0.15);
     position: relative;
     border-radius: 1px;
 }
 
-body.dark-theme .scrubber-track { background: rgba(255, 255, 255, 0.3); }
+body.dark-theme .scrubber-track {
+    background: rgba(255, 255, 255, 0.2);
+}
 
 .scrubber-progress {
     height: 100%;
     background: var(--color-accent);
     width: 0%;
+    border-radius: 1px;
 }
 
 .scrubber-knob {
     width: 8px;
     height: 8px;
-    background: #000;
+    background: var(--color-text-primary);
     border-radius: 50%;
     position: absolute;
     top: 50%;
     left: 0%;
     transform: translate(-50%, -50%);
+    transition: background var(--transition-fast);
 }
 
-body.dark-theme .scrubber-knob { background: white; }
+body.dark-theme .scrubber-knob {
+    background: white;
+}
 
 .time-display {
-    font-size: 12px;
-    font-weight: 700;
-    font-family: monospace;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     white-space: nowrap;
+    color: var(--color-text-secondary);
+    min-width: 44px;
+    text-align: right;
 }
 
-/* Feedback Section */
-.feedback-mini-section {
+/* Comment Cell */
+.comment-cell {
+    padding: 0 6px;
+}
+
+.comment-cell .feedback-mini-section {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    width: 100%;
 }
 
 .feedback-input {
     flex: 1;
-    background: var(--color-bg);
-    border: 2px solid #000;
-    padding: 8px 16px;
-    border-radius: 20px;
-    font-size: 14px;
+    background: transparent;
+    border: none;
+    padding: 8px 10px;
+    font-size: 13px;
     outline: none;
+    color: var(--color-text-primary);
+    min-width: 0;
 }
 
-body.dark-theme .feedback-input {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(0, 0, 0, 0.2);
-    color: white;
+.feedback-input::placeholder {
+    color: var(--color-text-tertiary);
+    font-style: italic;
 }
 
 .send-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border: 2px solid #000;
-    background: var(--color-bg);
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1.5px solid var(--cell-border);
+    background: transparent;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: transform 0.1s;
+    flex-shrink: 0;
+    color: var(--color-text-tertiary);
+    transition:
+        transform 0.1s,
+        color var(--transition-fast),
+        border-color var(--transition-fast),
+        background var(--transition-fast);
 }
 
-body.dark-theme .send-btn {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.05);
-    color: white;
+.send-btn:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+    background: var(--color-accent-light);
 }
 
 .send-btn:active {
     transform: scale(0.9);
+}
+
+body.dark-theme .send-btn {
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.4);
+}
+
+body.dark-theme .send-btn:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+    background: rgba(56, 189, 248, 0.1);
 }
 
 .hidden-audio { display: none; }

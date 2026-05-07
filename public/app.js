@@ -1,10 +1,11 @@
 // ============================
-//  Mock Data for Sidebar
+//  Class / Day Data (dynamic)
 // ============================
+// Cache: classId -> { days: [{ day: N }], loaded: bool }
 const CLASSES_DATA = {
-    'S001': { days: [{ day: 1, date: '10/04' }, { day: 2, date: '12/04' }, { day: 3, date: '14/04' }] },
-    'S002': { days: [{ day: 1, date: '11/04' }, { day: 2, date: '13/04' }] },
-    'S003': { days: [{ day: 1, date: '15/04' }, { day: 4, date: '18/04' }, { day: 5, date: '20/04' }] }
+    'S001': { days: [], loaded: false },
+    'S002': { days: [], loaded: false },
+    'S003': { days: [], loaded: false }
 };
 
 const DEFAULT_TABS = [];
@@ -21,12 +22,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const dayDropdown = document.getElementById('dayDropdown');
     const submissionsList = document.getElementById('submissions-list');
     const loadingIndicator = document.getElementById('loading-indicator');
-    const studentTemplate = document.getElementById('student-template');
-    const answerTemplate = document.getElementById('answer-template');
     const tabsBar = document.getElementById('tabsBar');
     const workspace = document.querySelector('.container');
     const mainContent = document.querySelector('main');
     const APP_POSITION_KEY = 'gradingAppPosition';
+    const COLUMN_WIDTHS_KEY = 'gradingColumnWidths';
+
+    // Default columns: Student, Name, Audio, Comments
+    let columnWidths = [200, 130, 300, 300]; 
 
     // ============================
     //  Sidebar Logic
@@ -133,6 +136,28 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarNav.innerHTML = html;
     }
 
+    // Surgically update day list for a single class (called after /api/days loads)
+    function renderSidebarDays(className) {
+        const group = sidebarNav.querySelector(`.class-group[data-class="${className}"]`);
+        if (!group) return;
+
+        const days = CLASSES_DATA[className]?.days || [];
+
+        // Update badge count
+        const badge = group.querySelector('.class-count-badge');
+        if (badge) badge.textContent = days.length;
+
+        // Re-render children
+        const children = group.querySelector('.class-children');
+        if (children) {
+            children.innerHTML = days.map(day => `
+                <div class="date-entry" data-class="${className}" data-day="${day.day}" onclick="window.selectHomework('${className}', '${day.day}')">
+                    <span>${getDayLabel(className, day.day)}</span>
+                </div>
+            `).join('');
+        }
+    }
+
     window.openClassFromSidebar = (className) => {
         openClassTab(className);
     };
@@ -149,13 +174,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function getClassDays(className) {
-        return CLASSES_DATA[className]?.days || [{ day: 1, date: '10/04' }, { day: 2, date: '12/04' }, { day: 3, date: '14/04' }];
+        return CLASSES_DATA[className]?.days || [];
     }
 
     function getDayLabel(className, dayValue) {
-        const dayInfo = getClassDays(className).find(item => String(item.day) === String(dayValue));
         const dayNumber = String(dayValue).padStart(2, '0');
-        return `[Day ${dayNumber}] ${dayInfo?.date || 'DD/MM'}`;
+        return `[Day ${dayNumber}]`;
     }
 
     function isKnownClass(className) {
@@ -166,7 +190,56 @@ document.addEventListener('DOMContentLoaded', () => {
         return getClassDays(className).some(item => String(item.day) === String(dayValue));
     }
 
+    async function loadDaysForClass(className) {
+        const classData = CLASSES_DATA[className];
+        if (!classData || classData.loaded) return; // already loaded this session
+
+        // Check browser localStorage cache first — avoids HTTP request on refresh
+        const lsKey = `gradingDays_${className}`;
+        const cached = localStorage.getItem(lsKey);
+        if (cached) {
+            try {
+                classData.days = JSON.parse(cached);
+                classData.loaded = true;
+                renderSidebarDays(className);
+                if (activeTabId === className) {
+                    updateDayOptions(className, selectedDaysByClass[className]);
+                }
+                return; // done — no network call needed
+            } catch (e) {
+                localStorage.removeItem(lsKey); // corrupted, fall through to fetch
+            }
+        }
+
+        // Cache miss — fetch from server (server reads its own file cache, not Drive)
+        try {
+            const res = await fetch(`/api/days?class=${encodeURIComponent(className)}`);
+            const days = await res.json();
+            classData.days = days;
+            classData.loaded = true;
+            localStorage.setItem(lsKey, JSON.stringify(days)); // persist for next refresh
+
+            renderSidebarDays(className);
+            if (activeTabId === className) {
+                updateDayOptions(className, selectedDaysByClass[className]);
+            }
+        } catch (err) {
+            console.error(`Failed to load days for ${className}:`, err);
+        }
+    }
+
     function readSavedPosition() {
+        // Restore column widths
+        const savedWidths = localStorage.getItem(COLUMN_WIDTHS_KEY);
+        if (savedWidths) {
+            try {
+                columnWidths = JSON.parse(savedWidths);
+                updateColumnStyles();
+            } catch (e) {
+                console.error('Error parsing column widths', e);
+            }
+        }
+
         const fallback = {
             openTabs: [],
             activeTabId: null,
@@ -392,6 +465,9 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTabs();
         updateSidebarSelection(className, selectedDay);
 
+        // Kick off dynamic day loading from Drive (no-op if already loaded)
+        loadDaysForClass(className);
+
         if (day) {
             selectDay(day);
         } else if (selectedDay) {
@@ -492,30 +568,167 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSidebarSelection(activeTabId, selectedDay);
             savePosition();
 
-            if (data.length === 0) {
-                submissionsList.innerHTML = `<div class="placeholder-state"><p>No submissions found.</p></div>`;
-                restoreMainScrollPosition();
-                return;
+            renderGradingTable(data, selectedDay);
+            restoreMainScrollPosition();
+        } catch (error) {
+            console.error('Error:', error);
+            loadingIndicator.classList.add('hidden');
+        }
+    });
+    // ============================
+    //  Expand / Collapse Animation
+    // ============================
+    const CHEVRON_SVG = `
+        <svg class="chevron-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+    `;
+
+    function expandBlock(block, arrow) {
+        block.classList.add('expanded');
+
+        const container = block.querySelector('.collapsible-rows-container');
+        if (!container) return;
+        container.classList.add('is-open');
+
+        const rows = container.querySelectorAll('.grading-row');
+        rows.forEach((row, i) => {
+            row.animate([
+                { opacity: 0, transform: 'translateY(-10px)' },
+                { opacity: 1, transform: 'translateY(0)' }
+            ], {
+                duration: 160,
+                delay: i * 45,
+                easing: 'cubic-bezier(0.2, 0, 0, 1)',
+                fill: 'forwards'
+            });
+        });
+    }
+
+    function collapseBlock(block, arrow) {
+        block.classList.remove('expanded');
+
+        const container = block.querySelector('.collapsible-rows-container');
+        if (!container) return;
+
+        const rows = [...container.querySelectorAll('.grading-row')].reverse();
+        rows.forEach((row, i) => {
+            const anim = row.animate([
+                { opacity: 1, transform: 'translateY(0)' },
+                { opacity: 0, transform: 'translateY(-8px)' }
+            ], {
+                duration: 120,
+                delay: i * 30,
+                easing: 'cubic-bezier(0.4, 0, 1, 1)',
+                fill: 'forwards'
+            });
+            if (i === rows.length - 1) {
+                anim.onfinish = () => container.classList.remove('is-open');
             }
+        });
+    }
 
-            data.forEach(student => {
-                const studentClone = studentTemplate.content.cloneNode(true);
-                studentClone.querySelector('.student-name').textContent = student.name;
-                const answersContainer = studentClone.querySelector('.answers-container');
+    // ============================
+    //  Grading Table Rendering
+    // ============================
+    function renderGradingTable(students, selectedDay) {
+        if (students.length === 0) {
+            submissionsList.innerHTML = `<div class="placeholder-state"><p>No submissions found.</p></div>`;
+            return;
+        }
 
-                student.answers.forEach(answer => {
-                    const answerClone = answerTemplate.content.cloneNode(true);
-                    answerClone.querySelector('.q-text').textContent = `${selectedDay}-${answer.q}`;
-                    
-                    const audio = answerClone.querySelector('.hidden-audio');
-                    audio.src = answer.audioUrl;
+        const table = document.createElement('div');
+        table.className = 'grading-table';
 
-                    const playBtn = answerClone.querySelector('.play-mini-btn');
-                    const progress = answerClone.querySelector('.scrubber-progress');
-                    const knob = answerClone.querySelector('.scrubber-knob');
-                    const timeDisplay = answerClone.querySelector('.time-display');
-                    const sendBtn = answerClone.querySelector('.send-btn');
-                    const feedbackInput = answerClone.querySelector('.feedback-input');
+        // Sticky header
+        const header = document.createElement('div');
+        header.className = 'grading-header';
+        
+        const headerRow = document.createElement('div');
+        headerRow.className = 'grading-row';
+        headerRow.innerHTML = `
+            <div class="grading-cell header-cell" data-index="0">Student<div class="resizer"></div></div>
+            <div class="grading-cell header-cell" data-index="1">Name<div class="resizer"></div></div>
+            <div class="grading-cell header-cell" data-index="2">Audio<div class="resizer"></div></div>
+            <div class="grading-cell header-cell" data-index="3">Comments</div>
+        `;
+        header.appendChild(headerRow);
+        table.appendChild(header);
+
+        // Wire resizers
+        const resizers = headerRow.querySelectorAll('.resizer');
+        resizers.forEach(resizer => {
+            resizer.addEventListener('mousedown', initResize);
+        });
+
+        // Body
+        const body = document.createElement('div');
+        body.className = 'grading-body';
+
+        students.forEach(student => {
+            const block = document.createElement('div');
+            block.className = 'student-block';
+            block.dataset.studentId = student.id;
+
+            const hasAnswers = student.answers && student.answers.length > 0;
+            const hasMultiple = hasAnswers && student.answers.length > 1;
+
+            // Helper: build a single row given an answer and whether its student cell is shown
+            const buildRow = (answer, showStudentCell) => {
+                const row = document.createElement('div');
+                row.className = showStudentCell ? 'grading-row' : 'grading-row sub-row';
+
+                // --- Student Cell (first row only) ---
+                if (showStudentCell) {
+                    const studentCell = document.createElement('div');
+                    studentCell.className = 'grading-cell student-cell clickable';
+                    studentCell.innerHTML = `
+                        <span class="student-toggle-arrow">${CHEVRON_SVG}</span>
+                        <span class="student-name-text">${student.name}</span>
+                    `;
+                    studentCell.addEventListener('click', () => {
+                        const isExpanded = block.classList.contains('expanded');
+                        const arrow = studentCell.querySelector('.student-toggle-arrow');
+                        if (isExpanded) {
+                            collapseBlock(block, arrow);
+                        } else {
+                            expandBlock(block, arrow);
+                        }
+                    });
+                    row.appendChild(studentCell);
+                }
+
+                // --- Name Cell ---
+                const nameCell = document.createElement('div');
+                nameCell.className = 'grading-cell name-cell';
+                if (answer && (answer.name || answer.q)) {
+                    nameCell.innerHTML = `<span class="name-text">${answer.name || answer.q}</span>`;
+                }
+                row.appendChild(nameCell);
+
+                // --- Audio Cell ---
+                const audioCell = document.createElement('div');
+                audioCell.className = 'grading-cell audio-cell';
+                if (answer && answer.audioUrl) {
+                    audioCell.innerHTML = `
+                        <div class="audio-player-compact">
+                            <button class="play-mini-btn">▶</button>
+                            <div class="scrubber-container">
+                                <div class="scrubber-track">
+                                    <div class="scrubber-progress"></div>
+                                    <div class="scrubber-knob"></div>
+                                </div>
+                            </div>
+                            <span class="time-display">00:00</span>
+                            <audio class="hidden-audio" src="${answer.audioUrl}"></audio>
+                        </div>
+                    `;
+                    // Wire audio
+                    const audio = audioCell.querySelector('.hidden-audio');
+                    const playBtn = audioCell.querySelector('.play-mini-btn');
+                    const progress = audioCell.querySelector('.scrubber-progress');
+                    const knob = audioCell.querySelector('.scrubber-knob');
+                    const timeDisplay = audioCell.querySelector('.time-display');
 
                     playBtn.addEventListener('click', () => {
                         if (audio.paused) {
@@ -531,9 +744,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     audio.addEventListener('timeupdate', () => {
                         if (!audio.duration) return;
-                        const percent = (audio.currentTime / audio.duration) * 100;
-                        progress.style.width = `${percent}%`;
-                        knob.style.left = `${percent}%`;
+                        const pct = (audio.currentTime / audio.duration) * 100;
+                        progress.style.width = `${pct}%`;
+                        knob.style.left = `${pct}%`;
                         timeDisplay.textContent = `${formatTime(audio.currentTime)}/${formatTime(audio.duration)}`;
                     });
 
@@ -542,21 +755,58 @@ document.addEventListener('DOMContentLoaded', () => {
                         progress.style.width = '0%';
                         knob.style.left = '0%';
                     });
+                }
+                row.appendChild(audioCell);
 
+                // --- Comment Cell ---
+                const commentCell = document.createElement('div');
+                commentCell.className = 'grading-cell comment-cell';
+                if (answer && (answer.name || answer.q)) {
+                    commentCell.innerHTML = `
+                        <div class="feedback-mini-section">
+                            <input type="text" class="feedback-input" placeholder="...">
+                            <button class="send-btn" title="Send to Sheets">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                            </button>
+                        </div>
+                    `;
+                    // Wire feedback
+                    const sendBtn = commentCell.querySelector('.send-btn');
+                    const feedbackInput = commentCell.querySelector('.feedback-input');
                     sendBtn.addEventListener('click', () => {
                         submitFeedback(student.id, selectedDay, answer.q, feedbackInput.value, sendBtn);
                     });
+                }
+                row.appendChild(commentCell);
 
-                    answersContainer.appendChild(answerClone);
-                });
-                submissionsList.appendChild(studentClone);
-            });
-            restoreMainScrollPosition();
-        } catch (error) {
-            console.error('Error:', error);
-            loadingIndicator.classList.add('hidden');
-        }
-    });
+                return row;
+            };
+
+            if (!hasAnswers) {
+                // If no answers, render a single row with just the student name
+                block.appendChild(buildRow(null, true));
+            } else {
+                // First row is always visible
+                block.appendChild(buildRow(student.answers[0], true));
+
+                // Remaining rows live in the animated container
+                if (hasMultiple) {
+                    const collapsible = document.createElement('div');
+                    collapsible.className = 'collapsible-rows-container';
+                    student.answers.slice(1).forEach(answer => {
+                        collapsible.appendChild(buildRow(answer, false));
+                    });
+                    block.appendChild(collapsible);
+                }
+            }
+
+            body.appendChild(block);
+        });
+
+        table.appendChild(body);
+        submissionsList.innerHTML = '';
+        submissionsList.appendChild(table);
+    }
 
     function restoreCurrentPosition() {
         renderTabs();
@@ -603,10 +853,66 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('beforeunload', savePosition);
 
     function formatTime(seconds) {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        if (isNaN(seconds)) return '00:00';
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
+
+    // ============================
+    //  Column Resizing Logic
+    // ============================
+    let activeResizer = null;
+    let startX = 0;
+    let startWidth = 0;
+    let colIndex = -1;
+
+    function initResize(e) {
+        activeResizer = e.target;
+        activeResizer.classList.add('is-resizing');
+        colIndex = parseInt(activeResizer.parentElement.dataset.index);
+        startX = e.pageX;
+        startWidth = activeResizer.parentElement.offsetWidth;
+
+        document.addEventListener('mousemove', handleResize);
+        document.addEventListener('mouseup', stopResize);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    }
+
+    function handleResize(e) {
+        if (!activeResizer) return;
+        const diff = e.pageX - startX;
+        const newWidth = Math.max(80, startWidth + diff);
+        columnWidths[colIndex] = newWidth;
+        updateColumnStyles();
+    }
+
+    function stopResize() {
+        if (activeResizer) {
+            activeResizer.classList.remove('is-resizing');
+        }
+        activeResizer = null;
+        document.removeEventListener('mousemove', handleResize);
+        document.removeEventListener('mouseup', stopResize);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
+    }
+
+    function updateColumnStyles() {
+        const columnsTemplate = columnWidths.map((w, i) => {
+            // Last column or columns with high width could be 1fr, 
+            // but for resizing it's easier to use px values for the first 3 
+            // and maybe 1fr for the last if we want it to fill.
+            // However, to make all resizable, px is better.
+            return i === 3 ? '1fr' : `${w}px`;
+        }).join(' ');
+        document.documentElement.style.setProperty('--gt-columns', columnsTemplate);
+    }
+
+    // Initialize columns
+    updateColumnStyles();
 
     async function submitFeedback(studentId, day, question, notes, buttonEl) {
         if (!notes.trim()) return;

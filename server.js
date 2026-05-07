@@ -1,83 +1,264 @@
 const express = require('express');
 const path = require('path');
+const { google } = require('googleapis');
+const fs = require('fs');
 
 const app = express();
 const PORT = 3001;
 
-// Middleware to parse JSON bodies
 app.use(express.json());
-
-// Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- MOCK DATA ---
-const mockSubmissions = {
-  1: [
-    { 
-      id: 's1', 
-      name: 'Nguyen Thi Thu Thuy', 
-      answers: [
-        { q: 'Q1', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg', status: 'pending' },
-        { q: 'Q2', audioUrl: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg', status: 'pending' },
-        { q: 'Q3', audioUrl: 'https://actions.google.com/sounds/v1/water/water_leak.ogg', status: 'pending' }
-      ]
-    },
-    { 
-      id: 's2', 
-      name: 'Bob Johnson', 
-      answers: [
-        { q: 'Q1', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg', status: 'pending' }
-      ]
-    }
-  ],
-  2: [
-    { 
-      id: 's3', 
-      name: 'Truong Van Mac', 
-      answers: [
-        { q: 'Q1', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg', status: 'pending' },
-        { q: 'Q2', audioUrl: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg', status: 'pending' }
-      ]
-    }
-  ]
-};
+// --- GOOGLE DRIVE SETUP ---
+const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
+const KEY_FILE = path.join(__dirname, 'credentials.json');
 
-// --- MOCK API ROUTES ---
-
-// Get submissions for a specific day
-app.get('/api/submissions', (req, res) => {
-  const day = req.query.day;
-  if (!day) {
-    return res.status(400).json({ error: 'Day parameter is required' });
-  }
-
-  const submissions = mockSubmissions[day] || [];
-  
-  // Simulate network delay
-  setTimeout(() => {
-    res.json(submissions);
-  }, 500);
+const auth = new google.auth.GoogleAuth({
+  keyFile: KEY_FILE,
+  scopes: SCOPES,
 });
 
-// Submit feedback for a student
-app.post('/api/feedback', (req, res) => {
-  const { studentId, day, notes } = req.body;
+const drive = google.drive({ version: 'v3', auth });
 
-  if (!studentId || !day || !notes) {
-    return res.status(400).json({ error: 'Missing required fields (studentId, day, notes)' });
+// Map Class IDs to Google Drive Folder IDs
+const CLASS_FOLDERS = {
+  'S001': '1d_JaEf8uEJgLaAlahXkku_HXX9baO7Ss',
+  // Add other IDs here when available
+};
+
+// --- FILE CACHE SETUP ---
+const CACHE_DIR = path.join(__dirname, 'cache');
+if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
+
+function getCachePath(classId) {
+  return path.join(CACHE_DIR, `days-${classId}.json`);
+}
+
+function readCache(classId) {
+  const file = getCachePath(classId);
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch { return null; }
+}
+
+function writeCache(classId, data) {
+  fs.writeFileSync(getCachePath(classId), JSON.stringify(data, null, 2));
+}
+// --- HELPER FUNCTIONS ---
+
+/**
+ * Lists all student folders in a class folder
+ */
+async function getStudentFolders(parentFolderId) {
+  const res = await drive.files.list({
+    q: `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id, name)',
+    pageSize: 100,
+  });
+  return res.data.files;
+}
+
+/**
+ * Finds a specific "Day" folder inside a student folder (fuzzy match)
+ */
+async function findDayFolder(studentFolderId, targetDay) {
+  const res = await drive.files.list({
+    q: `'${studentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id, name)',
+  });
+  
+  const folders = res.data.files || [];
+  // Match "day" (or "d" or "ngày") followed by optional leading zeros then the exact number,
+  // NOT followed by another digit — so day1 never matches day16.
+  const dayPattern = new RegExp(`(?:day|ngày|ngay)0*${targetDay}(?!\\d)`, 'i');
+  
+  return folders.find(f => {
+    const name = f.name.replace(/\s+/g, '');
+    return dayPattern.test(name);
+  });
+}
+
+/**
+ * Lists audio files in a folder
+ */
+async function getAudioFiles(folderId) {
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and (mimeType contains 'audio/' or mimeType = 'application/octet-stream') and trashed = false`,
+    fields: 'files(id, name, mimeType)',
+  });
+  return res.data.files || [];
+}
+
+// --- API ROUTES ---
+
+/**
+ * Parses a day number from a folder name.
+ * Handles: "Day 16", "Day16", "D16", "Ngày 16", "day 16", "Day016" etc.
+ */
+function parseDayNumber(folderName) {
+  const cleaned = folderName.toLowerCase().replace(/\s+/g, '');
+  const match = cleaned.match(/(?:day|d|ngày|ngay)0*(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+async function scanDaysFromDrive(rootFolderId) {
+  const students = await getStudentFolders(rootFolderId);
+  const daySetMap = new Map();
+
+  await Promise.all(students.map(async (student) => {
+    const res2 = await drive.files.list({
+      q: `'${student.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
+    });
+    (res2.data.files || []).forEach(f => {
+      const num = parseDayNumber(f.name);
+      if (num !== null && !daySetMap.has(num)) {
+        daySetMap.set(num, f.name);
+      }
+    });
+  }));
+
+  return [...daySetMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([num]) => ({ day: num }));
+}
+
+// Get all available days for a class — reads from file cache, scans Drive on miss
+app.get('/api/days', async (req, res) => {
+  const { class: classId } = req.query;
+  if (!classId) return res.status(400).json({ error: 'Class parameter required' });
+
+  const rootFolderId = CLASS_FOLDERS[classId];
+  if (!rootFolderId) return res.json([]);
+
+  // Return cached result immediately if available
+  const cached = readCache(classId);
+  if (cached) {
+    console.log(`[cache] Serving days for ${classId} from file cache`);
+    return res.json(cached);
   }
 
-  console.log(`[Mock Google Sheets API] Writing to sheet for Student ${studentId}...`);
-  console.log(`Data: Day ${day} | Notes: "${notes}"`);
+  // Cache miss — scan Drive
+  console.log(`[cache] No cache for ${classId}, scanning Drive...`);
+  try {
+    const days = await scanDaysFromDrive(rootFolderId);
+    writeCache(classId, days);
+    res.json(days);
+  } catch (error) {
+    console.error('Error fetching days:', error);
+    res.status(500).json({ error: 'Failed to fetch days' });
+  }
+});
 
-  // Simulate network delay and success
+// Force re-scan and update cache (call this when new students/days are added)
+app.post('/api/cache/refresh', async (req, res) => {
+  const { class: classId } = req.body;
+  const targets = classId ? [classId] : Object.keys(CLASS_FOLDERS);
+
+  const results = {};
+  for (const id of targets) {
+    const rootFolderId = CLASS_FOLDERS[id];
+    if (!rootFolderId) continue;
+    try {
+      console.log(`[cache] Force refreshing ${id}...`);
+      const days = await scanDaysFromDrive(rootFolderId);
+      writeCache(id, days);
+      results[id] = days.length;
+    } catch (err) {
+      results[id] = `error: ${err.message}`;
+    }
+  }
+
+  // Include localStorage keys that the browser should clear, 
+  // so the next page load fetches the fresh data
+  const clearBrowserKeys = targets.map(id => `gradingDays_${id}`);
+  res.json({ refreshed: results, clearBrowserKeys });
+});
+
+app.get('/api/submissions', async (req, res) => {
+  const { class: classId, day } = req.query;
+  
+  if (!day || !classId) {
+    return res.status(400).json({ error: 'Class and Day parameters are required' });
+  }
+
+  const rootFolderId = CLASS_FOLDERS[classId];
+  if (!rootFolderId) {
+    console.warn(`No root folder configured for class: ${classId}`);
+    return res.json([]);
+  }
+
+  try {
+    const students = await getStudentFolders(rootFolderId);
+    
+    // Process students in parallel
+    const results = await Promise.all(students.map(async (student) => {
+      try {
+        const dayFolder = await findDayFolder(student.id, day);
+        
+        let answers = [];
+        if (dayFolder) {
+          const files = await getAudioFiles(dayFolder.id);
+          answers = files.map(f => ({
+            q: f.name.split('.')[0],
+            name: f.name,
+            audioUrl: `/api/audio/${f.id}`,
+            status: 'pending'
+          }));
+        }
+
+        return {
+          id: student.id,
+          name: student.name,
+          answers: answers
+        };
+      } catch (err) {
+        console.error(`Error processing student ${student.name}:`, err);
+        return { id: student.id, name: student.name, answers: [] };
+      }
+    }));
+
+    res.json(results);
+  } catch (error) {
+    console.error('Drive API Error:', error);
+    res.status(500).json({ error: 'Failed to fetch data from Google Drive' });
+  }
+});
+
+// Proxy route to stream audio from Google Drive
+app.get('/api/audio/:fileId', async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    const response = await drive.files.get(
+      { fileId: fileId, alt: 'media' },
+      { responseType: 'stream' }
+    );
+
+    res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
+    response.data
+      .on('end', () => {})
+      .on('error', err => {
+        console.error('Error streaming audio:', err);
+      })
+      .pipe(res);
+  } catch (error) {
+    console.error('Audio Proxy Error:', error);
+    res.status(500).send('Error fetching audio');
+  }
+});
+
+// Submit feedback (remains mock for now)
+app.post('/api/feedback', (req, res) => {
+  const { studentId, day, question, comment } = req.body;
+  console.log(`Feedback received: Student ${studentId}, Day ${day}, Q: ${question}, Comment: ${comment}`);
+  
   setTimeout(() => {
-    res.json({ success: true, message: 'Feedback successfully saved to Google Sheet.' });
+    res.json({ success: true, message: 'Comment pushed to Google Sheet (Simulated)' });
   }, 800);
 });
 
-// Start the server
 app.listen(PORT, () => {
   console.log(`Server is running at http://localhost:${PORT}`);
-  console.log('Serving mock data for the demo.');
+  console.log(`Connected to Google Drive for S001`);
 });
