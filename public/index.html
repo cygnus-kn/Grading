@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Homework Grading</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Background element for the glass effect to sit on -->
+    <div class="ambient-background">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="sidebar-header">
+                <h2>Classes</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active">
+                    <span class="nav-icon">📚</span>
+                    Spring 2024 - Section A
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📚</span>
+                    Spring 2024 - Section B
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">🗣️</span>
+                    Speaking Club
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📝</span>
+                    Writing Workshop
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="container glass-panel">
+        <header>
+            <div class="header-text">
+                <h1>Assignments</h1>
+                <p>Select a day to review audio submissions.</p>
+            </div>
+            <div class="controls">
+                <select id="day-select">
+                    <option value="" disabled selected>Select Day</option>
+                    <option value="1">Day 1</option>
+                    <option value="2">Day 2</option>
+                    <option value="3">Day 3</option>
+                </select>
+                <div id="loading-indicator" class="hidden spinner"></div>
+            </div>
+        </header>
+
+        <main>
+            <div id="submissions-list" class="submissions-list">
+                <div class="placeholder-state">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5; margin-bottom: 12px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <p>No assignments loaded yet.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    </div> <!-- End app-layout -->
+
+    <!-- Template for a single student row -->
+    <template id="submission-template">
+        <div class="submission-card glass-item">
+            <div class="student-info">
+                <div class="avatar"></div>
+                <h3 class="student-name"></h3>
+            </div>
+            
+            <div class="audio-player">
+                <audio controls>
+                    <source src="" type="audio/ogg">
+                </audio>
+            </div>
+
+            <div class="feedback-section">
+                <textarea class="feedback-notes input-glass" placeholder="Write feedback notes..."></textarea>
+                <div class="feedback-actions">
+                    <button class="submit-btn btn-glass">Send to Sheets</button>
+                    <span class="status-message"></span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="app.js"></script>
+</body>
+</html>
