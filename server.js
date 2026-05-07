@@ -44,6 +44,9 @@ const CLASS_FOLDERS = {
   // Add other IDs here when available
 };
 
+const DRIVE_CONCURRENCY = 4;
+const DRIVE_RETRY_DELAYS_MS = [500, 1500, 3500];
+
 // --- FILE CACHE SETUP ---
 const CACHE_DIR = path.join(__dirname, 'cache');
 try {
@@ -83,6 +86,51 @@ function writeCache(classId, data) {
     console.warn(`[cache] Failed to write cache for ${classId} (skipping)`);
   }
 }
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRateLimitError(error) {
+  const reason = error?.errors?.[0]?.reason || error?.response?.data?.error?.errors?.[0]?.reason;
+  return error?.code === 429 || (
+    error?.code === 403 &&
+    ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded'].includes(reason)
+  );
+}
+
+async function withDriveRetry(operation) {
+  for (let attempt = 0; attempt <= DRIVE_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isRateLimitError(error) || attempt === DRIVE_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+
+      const delay = DRIVE_RETRY_DELAYS_MS[attempt];
+      console.warn(`[drive] Rate limit hit; retrying in ${delay}ms`);
+      await sleep(delay);
+    }
+  }
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
+
 // --- HELPER FUNCTIONS ---
 
 /**
@@ -90,11 +138,11 @@ function writeCache(classId, data) {
  */
 async function getStudentFolders(parentFolderId) {
   if (!drive) throw new Error('Drive API not initialized');
-  const res = await drive.files.list({
+  const res = await withDriveRetry(() => drive.files.list({
     q: `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
     pageSize: 100,
-  });
+  }));
   return res.data.files;
 }
 
@@ -103,10 +151,10 @@ async function getStudentFolders(parentFolderId) {
  */
 async function findDayFolder(studentFolderId, targetDay) {
   if (!drive) throw new Error('Drive API not initialized');
-  const res = await drive.files.list({
+  const res = await withDriveRetry(() => drive.files.list({
     q: `'${studentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
-  });
+  }));
   
   const folders = res.data.files || [];
   // Match "day" (or "d" or "ngày") followed by optional leading zeros then the exact number,
@@ -124,10 +172,10 @@ async function findDayFolder(studentFolderId, targetDay) {
  */
 async function getAudioFiles(folderId) {
   if (!drive) throw new Error('Drive API not initialized');
-  const res = await drive.files.list({
+  const res = await withDriveRetry(() => drive.files.list({
     q: `'${folderId}' in parents and (mimeType contains 'audio/' or mimeType = 'application/octet-stream') and trashed = false`,
     fields: 'files(id, name, mimeType)',
-  });
+  }));
   return res.data.files || [];
 }
 
@@ -157,18 +205,18 @@ async function scanDaysFromDrive(rootFolderId) {
   const students = await getStudentFolders(rootFolderId);
   const daySetMap = new Map();
 
-  await Promise.all(students.map(async (student) => {
-    const res2 = await drive.files.list({
+  await mapWithConcurrency(students, DRIVE_CONCURRENCY, async (student) => {
+    const res2 = await withDriveRetry(() => drive.files.list({
       q: `'${student.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id, name)',
-    });
+    }));
     (res2.data.files || []).forEach(f => {
       const num = parseDayNumber(f.name);
       if (num !== null && !daySetMap.has(num)) {
         daySetMap.set(num, f.name);
       }
     });
-  }));
+  });
 
   return normalizeDays(Array.from(daySetMap.keys()).map(day => ({ day }))) || [];
 }
@@ -242,19 +290,21 @@ app.get('/api/submissions', async (req, res) => {
     const students = await getStudentFolders(rootFolderId);
     
     // Process students in parallel
-    const results = await Promise.all(students.map(async (student) => {
+    const results = await mapWithConcurrency(students, DRIVE_CONCURRENCY, async (student) => {
       try {
         const dayFolder = await findDayFolder(student.id, day);
         
         let answers = [];
         if (dayFolder) {
           const files = await getAudioFiles(dayFolder.id);
-          answers = files.map(f => ({
-            q: f.name.split('.')[0],
-            name: f.name,
-            audioUrl: `/api/audio/${f.id}`,
-            status: 'pending'
-          }));
+          answers = files
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }))
+            .map(f => ({
+              q: f.name.split('.')[0],
+              name: f.name,
+              audioUrl: `/api/audio/${f.id}`,
+              status: 'pending'
+            }));
         }
 
         return {
@@ -266,7 +316,7 @@ app.get('/api/submissions', async (req, res) => {
         console.error(`Error processing student ${student.name}:`, err);
         return { id: student.id, name: student.name, answers: [] };
       }
-    }));
+    });
 
     res.json(results);
   } catch (error) {
@@ -308,7 +358,11 @@ app.post('/api/feedback', (req, res) => {
   }, 800);
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running at http://localhost:${PORT}`);
-  console.log(`Connected to Google Drive for S001`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server is running at http://localhost:${PORT}`);
+    console.log(`Connected to Google Drive for S001`);
+  });
+}
+
+module.exports = app;

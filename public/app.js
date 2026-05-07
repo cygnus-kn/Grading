@@ -68,8 +68,9 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(classes => {
             classes.forEach(c => {
                 if (CLASSES_DATA[c.id]) {
-                    CLASSES_DATA[c.id].days = c.days;
-                    CLASSES_DATA[c.id].loaded = true;
+                    const days = Array.isArray(c.days) ? c.days : [];
+                    CLASSES_DATA[c.id].days = days;
+                    CLASSES_DATA[c.id].loaded = days.length > 0;
                 }
             });
             renderSidebar();
@@ -136,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </span>
                     </div>
                     <div class="class-children">
-                        ${data.days.map(day => `
+                        ${getClassDays(className).map(day => `
                             <div class="date-entry" data-class="${className}" data-day="${day.day}" onclick="window.selectHomework('${className}', '${day.day}')">
                                 <span>${getDayLabel(className, day.day)}</span>
                             </div>
@@ -153,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const group = sidebarNav.querySelector(`.class-group[data-class="${className}"]`);
         if (!group) return;
 
-        const days = CLASSES_DATA[className]?.days || [];
+        const days = getClassDays(className);
 
         // Update badge count
         const badge = group.querySelector('.class-count-badge');
@@ -186,7 +187,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function getClassDays(className) {
-        return CLASSES_DATA[className]?.days || [];
+        return [...(CLASSES_DATA[className]?.days || [])]
+            .sort((a, b) => Number(b.day) - Number(a.day));
     }
 
     function getDayLabel(className, dayValue) {
@@ -211,7 +213,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const cached = localStorage.getItem(lsKey);
         if (cached) {
             try {
-                classData.days = JSON.parse(cached);
+                const cachedDays = JSON.parse(cached);
+                if (!Array.isArray(cachedDays) || cachedDays.length === 0) {
+                    localStorage.removeItem(lsKey);
+                    throw new Error('Empty day cache');
+                }
+
+                classData.days = cachedDays;
                 classData.loaded = true;
                 renderSidebarDays(className);
                 if (activeTabId === className) {
