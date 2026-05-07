@@ -384,19 +384,43 @@ body.dark-theme .class-count-badge {
 }
 
 .class-children {
+  --sidebar-day-entry-height: 34px;
+  --sidebar-day-entry-gap: 4px;
   overflow: hidden;
   max-height: 0;
   transition: max-height var(--transition-smooth);
+  scrollbar-color: rgba(110, 110, 115, 0.45) transparent;
+  scrollbar-width: thin;
 }
 
 .class-group.expanded .class-children {
-  max-height: 300px;
+  max-height: calc((var(--sidebar-day-entry-height) + var(--sidebar-day-entry-gap)) * 5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.class-children::-webkit-scrollbar {
+  width: 6px;
+}
+
+.class-children::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.class-children::-webkit-scrollbar-thumb {
+  background: rgba(110, 110, 115, 0.35);
+  border-radius: 999px;
+}
+
+.class-children::-webkit-scrollbar-thumb:hover {
+  background: rgba(110, 110, 115, 0.55);
 }
 
 .date-entry {
   display: flex;
   align-items: center;
   gap: 12px;
+  height: var(--sidebar-day-entry-height);
   padding: 8px 14px;
   margin: 2px 8px;
   border-radius: 9999px;

@@ -56,11 +56,23 @@ function getCachePath(classId) {
   return path.join(CACHE_DIR, `days-${classId}.json`);
 }
 
+function normalizeDays(days) {
+  if (!Array.isArray(days)) return null;
+
+  const dayNumbers = days
+    .map(item => Number(item && item.day))
+    .filter(Number.isInteger);
+  if (dayNumbers.length === 0) return [];
+
+  const maxDay = Math.max(...dayNumbers);
+  return Array.from({ length: maxDay }, (_, index) => ({ day: index + 1 }));
+}
+
 function readCache(classId) {
   const file = getCachePath(classId);
   if (!fs.existsSync(file)) return null;
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return normalizeDays(JSON.parse(fs.readFileSync(file, 'utf8')));
   } catch { return null; }
 }
 
@@ -158,15 +170,7 @@ async function scanDaysFromDrive(rootFolderId) {
     });
   }));
 
-  const allDays = Array.from(daySetMap.keys()).sort((a, b) => a - b);
-  const maxDay = allDays.length > 0 ? allDays[allDays.length - 1] : 0;
-  
-  const finalDays = [];
-  for (let i = 1; i <= maxDay; i++) {
-    finalDays.push({ day: i });
-  }
-
-  return finalDays;
+  return normalizeDays(Array.from(daySetMap.keys()).map(day => ({ day }))) || [];
 }
 
 // Get all available days for a class — reads from file cache, scans Drive on miss
