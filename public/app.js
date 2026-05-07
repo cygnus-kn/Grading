@@ -2,9 +2,9 @@
 //  Mock Data for Sidebar
 // ============================
 const CLASSES_DATA = {
-    'S001': { days: [1, 2, 3] },
-    'S002': { days: [1, 2] },
-    'S003': { days: [1, 4, 5] }
+    'S001': { days: [{ day: 1, date: '10/04' }, { day: 2, date: '12/04' }, { day: 3, date: '14/04' }] },
+    'S002': { days: [{ day: 1, date: '11/04' }, { day: 2, date: '13/04' }] },
+    'S003': { days: [{ day: 1, date: '15/04' }, { day: 4, date: '18/04' }, { day: 5, date: '20/04' }] }
 };
 
 const DEFAULT_TABS = [];
@@ -17,12 +17,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeToggle = document.getElementById('themeToggle');
     
     const daySelect = document.getElementById('day-select');
+    const dayBadge = document.getElementById('dayBadge');
+    const dayDropdown = document.getElementById('dayDropdown');
     const submissionsList = document.getElementById('submissions-list');
     const loadingIndicator = document.getElementById('loading-indicator');
     const studentTemplate = document.getElementById('student-template');
     const answerTemplate = document.getElementById('answer-template');
     const tabsBar = document.getElementById('tabsBar');
     const workspace = document.querySelector('.container');
+    const mainContent = document.querySelector('main');
+    const APP_POSITION_KEY = 'gradingAppPosition';
 
     // ============================
     //  Sidebar Logic
@@ -58,6 +62,12 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('theme', theme);
     });
 
+    const savedSidebarWidth = localStorage.getItem('sidebarWidth');
+    if (savedSidebarWidth) {
+        sidebar.style.width = savedSidebarWidth;
+        document.documentElement.style.setProperty('--sidebar-width', savedSidebarWidth);
+    }
+
     if (localStorage.getItem('sidebarCollapsed') === 'true') {
         sidebar.classList.add('collapsed');
     }
@@ -92,13 +102,28 @@ document.addEventListener('DOMContentLoaded', () => {
             html += `
                 <div class="class-group" data-class="${className}">
                     <div class="class-header" onclick="window.openClassFromSidebar('${className}')">
-                        <span>${className}</span>
-                        <span class="class-count-badge">${data.days.length}</span>
+                        <span class="class-title">
+                            <svg class="class-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            <span>${className}</span>
+                        </span>
+                        <span class="class-header-meta">
+                            <span class="class-count-badge">${data.days.length}</span>
+                            <button class="class-chevron-btn" type="button" aria-label="Toggle ${className} days" onclick="window.toggleClassExpansion(event, '${className}')">
+                                <svg class="class-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                        </span>
                     </div>
                     <div class="class-children">
                         ${data.days.map(day => `
-                            <div class="date-entry" data-class="${className}" data-day="${day}" onclick="window.selectHomework('${className}', '${day}')">
-                                <span>Day ${day}</span>
+                            <div class="date-entry" data-class="${className}" data-day="${day.day}" onclick="window.selectHomework('${className}', '${day.day}')">
+                                <span>${getDayLabel(className, day.day)}</span>
                             </div>
                         `).join('')}
                     </div>
@@ -109,24 +134,134 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.openClassFromSidebar = (className) => {
-        const group = document.querySelector(`.class-group[data-class="${className}"]`);
-        group.classList.add('expanded');
         openClassTab(className);
+    };
+
+    window.toggleClassExpansion = (event, className) => {
+        event.stopPropagation();
+        const group = document.querySelector(`.class-group[data-class="${className}"]`);
+        group.classList.toggle('expanded');
+        savePosition();
     };
 
     window.selectHomework = (className, day) => {
         openClassTab(className, day);
     };
 
-    function updateDayOptions(className, selectedDay) {
-        const days = CLASSES_DATA[className]?.days || [1, 2, 3];
-        const nextDay = selectedDay || (days.includes(Number(daySelect.value)) ? daySelect.value : days[0]);
+    function getClassDays(className) {
+        return CLASSES_DATA[className]?.days || [{ day: 1, date: '10/04' }, { day: 2, date: '12/04' }, { day: 3, date: '14/04' }];
+    }
 
-        daySelect.innerHTML = days.map(day => (
-            `<option value="${day}">Day ${day}</option>`
+    function getDayLabel(className, dayValue) {
+        const dayInfo = getClassDays(className).find(item => String(item.day) === String(dayValue));
+        const dayNumber = String(dayValue).padStart(2, '0');
+        return `[Day ${dayNumber}] ${dayInfo?.date || 'DD/MM'}`;
+    }
+
+    function isKnownClass(className) {
+        return Boolean(CLASSES_DATA[className]);
+    }
+
+    function isKnownDay(className, dayValue) {
+        return getClassDays(className).some(item => String(item.day) === String(dayValue));
+    }
+
+    function readSavedPosition() {
+        const fallback = {
+            openTabs: [],
+            activeTabId: null,
+            selectedDaysByClass: {},
+            expandedClasses: [],
+            mainScrollTop: 0
+        };
+
+        try {
+            const parsed = JSON.parse(localStorage.getItem(APP_POSITION_KEY) || '{}');
+            const openTabs = Array.isArray(parsed.openTabs)
+                ? parsed.openTabs.filter(isKnownClass)
+                : [];
+
+            const selectedDaysByClass = {};
+            if (parsed.selectedDaysByClass && typeof parsed.selectedDaysByClass === 'object') {
+                Object.entries(parsed.selectedDaysByClass).forEach(([className, day]) => {
+                    if (isKnownClass(className) && isKnownDay(className, day)) {
+                        selectedDaysByClass[className] = String(day);
+                    }
+                });
+            }
+
+            const activeTabId = openTabs.includes(parsed.activeTabId)
+                ? parsed.activeTabId
+                : (openTabs[0] || null);
+
+            const expandedClasses = Array.isArray(parsed.expandedClasses)
+                ? parsed.expandedClasses.filter(isKnownClass)
+                : [];
+
+            return {
+                openTabs,
+                activeTabId,
+                selectedDaysByClass,
+                expandedClasses,
+                mainScrollTop: Number.isFinite(parsed.mainScrollTop) ? parsed.mainScrollTop : 0
+            };
+        } catch (error) {
+            return fallback;
+        }
+    }
+
+    const savedPosition = readSavedPosition();
+    let openTabs = savedPosition.openTabs.map(className => ({ id: className, label: className }));
+    if (openTabs.length === 0) {
+        openTabs = DEFAULT_TABS.map(tab => ({ ...tab }));
+    }
+    let activeTabId = savedPosition.activeTabId || openTabs[0]?.id || null;
+    const selectedDaysByClass = { ...savedPosition.selectedDaysByClass };
+    let didRestoreScrollPosition = false;
+
+    function getExpandedClasses() {
+        return Array.from(document.querySelectorAll('.class-group.expanded'))
+            .map(group => group.dataset.class)
+            .filter(Boolean);
+    }
+
+    function savePosition() {
+        const state = {
+            openTabs: openTabs.map(tab => tab.id),
+            activeTabId,
+            selectedDaysByClass,
+            expandedClasses: getExpandedClasses(),
+            mainScrollTop: mainContent.scrollTop
+        };
+
+        localStorage.setItem(APP_POSITION_KEY, JSON.stringify(state));
+    }
+
+    function restoreExpandedClasses() {
+        savedPosition.expandedClasses.forEach(className => {
+            document.querySelector(`.class-group[data-class="${className}"]`)?.classList.add('expanded');
+        });
+    }
+
+    function restoreMainScrollPosition() {
+        if (didRestoreScrollPosition) return;
+        didRestoreScrollPosition = true;
+        requestAnimationFrame(() => {
+            mainContent.scrollTop = savedPosition.mainScrollTop;
+        });
+    }
+
+    function updateDayOptions(className, selectedDay) {
+        const days = getClassDays(className);
+        const nextDay = selectedDay && days.some(item => String(item.day) === String(selectedDay)) ? String(selectedDay) : '';
+
+        daySelect.innerHTML = days.map(dayInfo => (
+            `<option value="${dayInfo.day}">${getDayLabel(className, dayInfo.day)}</option>`
         )).join('');
 
-        daySelect.value = String(nextDay);
+        daySelect.value = nextDay;
+        dayBadge.textContent = nextDay ? getDayLabel(className, nextDay) : 'Select day';
+        renderDayDropdown();
     }
 
     function updateSidebarSelection(className, day) {
@@ -148,17 +283,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function selectDay(day) {
         daySelect.value = day;
+        dayBadge.textContent = getDayLabel(activeTabId, day);
         daySelect.dispatchEvent(new Event('change'));
     }
 
+    function renderDayDropdown() {
+        if (!activeTabId) {
+            dayDropdown.innerHTML = '';
+            return;
+        }
+
+        const days = getClassDays(activeTabId);
+        const currentDay = String(daySelect.value);
+
+        dayDropdown.innerHTML = days.map(dayInfo => {
+            const dayValue = String(dayInfo.day);
+            const isActive = dayValue === currentDay;
+            return `
+                <div class="dropdown-item${isActive ? ' active' : ''}" data-day="${dayValue}">
+                    ${getDayLabel(activeTabId, dayInfo.day)}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function closeDayDropdown() {
+        dayDropdown.classList.remove('show');
+        dayDropdown.closest('.badge-dropdown')?.classList.remove('open');
+    }
+
+    function toggleDayDropdown() {
+        const isShowing = dayDropdown.classList.contains('show');
+        closeDayDropdown();
+        if (!isShowing && activeTabId) {
+            renderDayDropdown();
+            dayDropdown.classList.add('show');
+            dayDropdown.closest('.badge-dropdown')?.classList.add('open');
+        }
+    }
+
     renderSidebar();
+    restoreExpandedClasses();
 
     // ============================
     //  Tab Switching
     // ============================
-    let openTabs = DEFAULT_TABS.map(tab => ({ ...tab }));
-    let activeTabId = openTabs[0]?.id || null;
-
     function renderTabs() {
         workspace.classList.toggle('workspace-empty', openTabs.length === 0);
 
@@ -192,14 +361,24 @@ document.addEventListener('DOMContentLoaded', () => {
     function showEmptyWorkspace() {
         loadingIndicator.classList.add('hidden');
         submissionsList.innerHTML = '';
+        daySelect.value = '';
+        dayBadge.textContent = 'Select day';
+        dayDropdown.innerHTML = '';
     }
 
     function activateTab(tabId) {
         if (activeTabId === tabId) return;
         activeTabId = tabId;
-        updateDayOptions(activeTabId);
+        const selectedDay = selectedDaysByClass[activeTabId];
+        updateDayOptions(activeTabId, selectedDay);
         renderTabs();
-        daySelect.dispatchEvent(new Event('change'));
+        updateSidebarSelection(activeTabId, selectedDay);
+        if (selectedDay) {
+            daySelect.dispatchEvent(new Event('change'));
+        } else {
+            showEmptyWorkspace();
+            savePosition();
+        }
     }
 
     function openClassTab(className, day) {
@@ -208,10 +387,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         activeTabId = className;
-        updateDayOptions(className, day);
+        const selectedDay = day ? String(day) : selectedDaysByClass[className];
+        updateDayOptions(className, selectedDay);
         renderTabs();
-        updateSidebarSelection(className, daySelect.value);
-        selectDay(daySelect.value);
+        updateSidebarSelection(className, selectedDay);
+
+        if (day) {
+            selectDay(day);
+        } else if (selectedDay) {
+            selectDay(selectedDay);
+        } else {
+            showEmptyWorkspace();
+            savePosition();
+        }
     }
 
     function closeTab(tabId) {
@@ -220,11 +408,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const wasActive = activeTabId === tabId;
         openTabs = openTabs.filter(tab => tab.id !== tabId);
+        delete selectedDaysByClass[tabId];
 
         if (wasActive) {
             const nextTab = openTabs[Math.min(closingIndex, openTabs.length - 1)];
             activeTabId = nextTab ? nextTab.id : null;
-            if (activeTabId) updateDayOptions(activeTabId);
+            if (activeTabId) updateDayOptions(activeTabId, selectedDaysByClass[activeTabId]);
         }
 
         renderTabs();
@@ -232,11 +421,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!activeTabId) {
             clearSidebarSelection();
             showEmptyWorkspace();
+            savePosition();
             return;
         }
 
         if (wasActive) {
-            daySelect.dispatchEvent(new Event('change'));
+            const selectedDay = selectedDaysByClass[activeTabId];
+            updateSidebarSelection(activeTabId, selectedDay);
+            if (selectedDay) {
+                daySelect.dispatchEvent(new Event('change'));
+            } else {
+                showEmptyWorkspace();
+                savePosition();
+            }
+        } else {
+            savePosition();
         }
     }
 
@@ -268,8 +467,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    renderTabs();
-
     // ============================
     //  App Logic
     // ============================
@@ -278,9 +475,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!selectedDay) return;
         if (!activeTabId) {
             showEmptyWorkspace();
+            savePosition();
             return;
         }
 
+        selectedDaysByClass[activeTabId] = String(selectedDay);
         loadingIndicator.classList.remove('hidden');
         submissionsList.innerHTML = '';
 
@@ -288,10 +487,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/submissions?class=${encodeURIComponent(activeTabId)}&day=${selectedDay}`);
             const data = await response.json();
             loadingIndicator.classList.add('hidden');
+            dayBadge.textContent = getDayLabel(activeTabId, selectedDay);
+            renderDayDropdown();
             updateSidebarSelection(activeTabId, selectedDay);
+            savePosition();
 
             if (data.length === 0) {
                 submissionsList.innerHTML = `<div class="placeholder-state"><p>No submissions found.</p></div>`;
+                restoreMainScrollPosition();
                 return;
             }
 
@@ -348,13 +551,56 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 submissionsList.appendChild(studentClone);
             });
+            restoreMainScrollPosition();
         } catch (error) {
             console.error('Error:', error);
             loadingIndicator.classList.add('hidden');
         }
     });
 
-    daySelect.dispatchEvent(new Event('change'));
+    function restoreCurrentPosition() {
+        renderTabs();
+
+        if (!activeTabId) {
+            clearSidebarSelection();
+            showEmptyWorkspace();
+            return;
+        }
+
+        const selectedDay = selectedDaysByClass[activeTabId];
+        updateDayOptions(activeTabId, selectedDay);
+        updateSidebarSelection(activeTabId, selectedDay);
+
+        if (selectedDay) {
+            daySelect.dispatchEvent(new Event('change'));
+        } else {
+            showEmptyWorkspace();
+        }
+    }
+
+    restoreCurrentPosition();
+
+    dayBadge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDayDropdown();
+    });
+
+    dayDropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.dropdown-item');
+        if (!item) return;
+        selectDay(item.dataset.day);
+        closeDayDropdown();
+    });
+
+    document.addEventListener('click', closeDayDropdown);
+
+    let scrollSaveTimer = null;
+    mainContent.addEventListener('scroll', () => {
+        clearTimeout(scrollSaveTimer);
+        scrollSaveTimer = setTimeout(savePosition, 120);
+    });
+
+    window.addEventListener('beforeunload', savePosition);
 
     function formatTime(seconds) {
         const mins = Math.floor(seconds / 60);
