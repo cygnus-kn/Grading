@@ -836,6 +836,74 @@ document.addEventListener('DOMContentLoaded', () => {
         table.appendChild(body);
         submissionsList.innerHTML = '';
         submissionsList.appendChild(table);
+        syncGradingColumnWidths(table, students);
+    }
+
+    function syncGradingColumnWidths(table, students) {
+        const measure = () => {
+            const headerCells = table.querySelectorAll('.grading-header .grading-cell');
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+
+            const textWidth = (text, sampleElement) => {
+                if (!context || !sampleElement) return 0;
+                const style = getComputedStyle(sampleElement);
+                context.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+                return context.measureText(String(text || '')).width;
+            };
+
+            const cellChromeWidth = (cell) => {
+                const style = getComputedStyle(cell);
+                return (
+                    parseFloat(style.paddingLeft) +
+                    parseFloat(style.paddingRight) +
+                    parseFloat(style.borderLeftWidth) +
+                    parseFloat(style.borderRightWidth)
+                );
+            };
+
+            let studentWidth = Math.max(200, headerCells[0]?.scrollWidth || 0);
+            const sampleStudentCell = table.querySelector('.student-cell');
+            const sampleStudentText = table.querySelector('.student-name-text');
+            const sampleStudentStyle = sampleStudentCell ? getComputedStyle(sampleStudentCell) : null;
+            const studentGap = sampleStudentStyle ? (parseFloat(sampleStudentStyle.columnGap || sampleStudentStyle.gap) || 0) : 0;
+            const studentArrowWidth = table.querySelector('.student-toggle-arrow')?.getBoundingClientRect().width || 0;
+            const studentChromeWidth = sampleStudentCell ? cellChromeWidth(sampleStudentCell) : 0;
+            students.forEach(student => {
+                const contentWidth = studentArrowWidth + studentGap + textWidth(student.name, sampleStudentText);
+                studentWidth = Math.max(studentWidth, Math.ceil(contentWidth + studentChromeWidth));
+            });
+            table.querySelectorAll('.student-cell').forEach(cell => {
+                const arrow = cell.querySelector('.student-toggle-arrow');
+                const name = cell.querySelector('.student-name-text');
+                const style = getComputedStyle(cell);
+                const gap = parseFloat(style.columnGap || style.gap) || 0;
+                const contentWidth = (arrow?.getBoundingClientRect().width || 0) + gap + (name?.scrollWidth || 0);
+                studentWidth = Math.max(studentWidth, Math.ceil(contentWidth + cellChromeWidth(cell)));
+            });
+
+            let nameWidth = Math.max(130, headerCells[1]?.scrollWidth || 0);
+            const sampleNameCell = table.querySelector('.name-cell');
+            const sampleNameText = table.querySelector('.name-text');
+            const nameChromeWidth = sampleNameCell ? cellChromeWidth(sampleNameCell) : 0;
+            students.forEach(student => {
+                (student.answers || []).forEach(answer => {
+                    const label = answer.name || answer.q || '';
+                    nameWidth = Math.max(nameWidth, Math.ceil(textWidth(label, sampleNameText) + nameChromeWidth));
+                });
+            });
+            table.querySelectorAll('.name-cell').forEach(cell => {
+                const name = cell.querySelector('.name-text');
+                if (!name) return;
+                nameWidth = Math.max(nameWidth, Math.ceil(name.scrollWidth + cellChromeWidth(cell)));
+            });
+
+            table.style.setProperty('--gt-student-col', `${studentWidth}px`);
+            table.style.setProperty('--gt-name-col', `${nameWidth}px`);
+        };
+
+        requestAnimationFrame(measure);
+        document.fonts?.ready?.then(measure).catch(() => {});
     }
 
     function restoreCurrentPosition() {

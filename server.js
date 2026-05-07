@@ -44,7 +44,6 @@ const CLASS_FOLDERS = {
   // Add other IDs here when available
 };
 
-const DRIVE_CONCURRENCY = 4;
 const DRIVE_RETRY_DELAYS_MS = [500, 1500, 3500];
 
 // --- FILE CACHE SETUP ---
@@ -113,22 +112,6 @@ async function withDriveRetry(operation) {
       await sleep(delay);
     }
   }
-}
-
-async function mapWithConcurrency(items, limit, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex++;
-      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
-    }
-  }
-
-  const workerCount = Math.min(limit, items.length);
-  await Promise.all(Array.from({ length: workerCount }, worker));
-  return results;
 }
 
 // --- HELPER FUNCTIONS ---
@@ -205,7 +188,7 @@ async function scanDaysFromDrive(rootFolderId) {
   const students = await getStudentFolders(rootFolderId);
   const daySetMap = new Map();
 
-  await mapWithConcurrency(students, DRIVE_CONCURRENCY, async (student) => {
+  await Promise.all(students.map(async (student) => {
     const res2 = await withDriveRetry(() => drive.files.list({
       q: `'${student.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id, name)',
@@ -216,7 +199,7 @@ async function scanDaysFromDrive(rootFolderId) {
         daySetMap.set(num, f.name);
       }
     });
-  });
+  }));
 
   return normalizeDays(Array.from(daySetMap.keys()).map(day => ({ day }))) || [];
 }
@@ -290,7 +273,7 @@ app.get('/api/submissions', async (req, res) => {
     const students = await getStudentFolders(rootFolderId);
     
     // Process students in parallel
-    const results = await mapWithConcurrency(students, DRIVE_CONCURRENCY, async (student) => {
+    const results = await Promise.all(students.map(async (student) => {
       try {
         const dayFolder = await findDayFolder(student.id, day);
         
@@ -316,7 +299,7 @@ app.get('/api/submissions', async (req, res) => {
         console.error(`Error processing student ${student.name}:`, err);
         return { id: student.id, name: student.name, answers: [] };
       }
-    });
+    }));
 
     res.json(results);
   } catch (error) {
