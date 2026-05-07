@@ -279,6 +279,16 @@ body.dark-theme .sidebar-header {
   overflow: hidden;
 }
 
+.class-header,
+.date-entry,
+.dropdown-item,
+.student-cell.clickable,
+.student-toggle-arrow,
+.student-name-text {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .class-header:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
