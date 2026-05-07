@@ -555,19 +555,46 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        selectedDaysByClass[activeTabId] = String(selectedDay);
-        loadingIndicator.classList.remove('hidden');
-        submissionsList.innerHTML = '';
+        const classId = activeTabId;
+        selectedDaysByClass[classId] = String(selectedDay);
+        
+        // --- 1. Check Cache First (Instant Load) ---
+        const cacheKey = `gradingSubmissions_${classId}_${selectedDay}`;
+        const cachedData = localStorage.getItem(cacheKey);
+        
+        if (cachedData) {
+            try {
+                const data = JSON.parse(cachedData);
+                dayBadge.textContent = getDayLabel(classId, selectedDay);
+                renderDayDropdown();
+                updateSidebarSelection(classId, selectedDay);
+                renderGradingTable(data, selectedDay);
+                // Don't show loading indicator if we have cached data
+                loadingIndicator.classList.add('hidden');
+            } catch (err) {
+                localStorage.removeItem(cacheKey);
+            }
+        } else {
+            // No cache: show loader and clear list
+            loadingIndicator.classList.remove('hidden');
+            submissionsList.innerHTML = '';
+        }
 
+        // --- 2. Fetch Fresh Data in Background ---
         try {
-            const response = await fetch(`/api/submissions?class=${encodeURIComponent(activeTabId)}&day=${selectedDay}`);
+            const response = await fetch(`/api/submissions?class=${encodeURIComponent(classId)}&day=${selectedDay}`);
             const data = await response.json();
+            
+            // Save to cache for next time
+            localStorage.setItem(cacheKey, JSON.stringify(data));
+            
             loadingIndicator.classList.add('hidden');
-            dayBadge.textContent = getDayLabel(activeTabId, selectedDay);
+            dayBadge.textContent = getDayLabel(classId, selectedDay);
             renderDayDropdown();
-            updateSidebarSelection(activeTabId, selectedDay);
+            updateSidebarSelection(classId, selectedDay);
             savePosition();
 
+            // Render fresh data (replaces cached data if it was showing)
             renderGradingTable(data, selectedDay);
             restoreMainScrollPosition();
         } catch (error) {

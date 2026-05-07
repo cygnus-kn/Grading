@@ -774,38 +774,36 @@ body.dark-theme .grading-table {
 
 /* Sticky Header */
 .grading-header {
-    display: grid;
-    grid-template-columns: var(--gt-columns);
-    gap: var(--gt-gap);
     position: sticky;
     top: 0;
-    z-index: 10;
-    padding: 0 0 8px;
     z-index: 100;
-    background: var(--color-page-bg);
-    padding-bottom: 12px;
+    background: transparent;
+    padding: 0 0 8px;
     margin-bottom: 4px;
 }
 
 .grading-header .grading-row {
+    display: grid;
+    grid-template-columns: var(--gt-columns);
+    gap: var(--gt-gap);
     position: relative;
     user-select: none;
 }
 
 .grading-header .grading-cell {
-    background: rgba(0, 0, 0, 0.04);
+    background: var(--cell-bg);
+    border: 1.5px solid var(--cell-border);
+    border-radius: var(--cell-radius);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-size: 11px;
     color: var(--color-text-secondary);
-    border-color: transparent;
-    position: relative;
-    border-radius: var(--cell-radius);
     padding: 10px 16px;
     min-height: var(--cell-height);
     display: flex;
     align-items: center;
+    position: relative;
 }
 
 body.dark-theme .grading-header .grading-cell {
@@ -834,8 +832,8 @@ body.dark-theme .grading-header .grading-cell {
     content: '';
     position: absolute;
     left: 50%;
-    top: 20%;
-    bottom: 20%;
+    top: 25%;
+    bottom: 25%;
     width: 1px;
     background: rgba(0, 0, 0, 0.1);
     transform: translateX(-0.5px);
