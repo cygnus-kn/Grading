@@ -193,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function getDayLabel(className, dayValue) {
         const dayNumber = String(dayValue).padStart(2, '0');
-        return `[Day ${dayNumber}]`;
+        return `Day ${dayNumber}`;
     }
 
     function isKnownClass(className) {
@@ -299,6 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     let activeTabId = savedPosition.activeTabId || openTabs[0]?.id || null;
     const selectedDaysByClass = { ...savedPosition.selectedDaysByClass };
+    const expandedStudentRows = new Set();
     let didRestoreScrollPosition = false;
 
     function getExpandedClasses() {
@@ -619,49 +620,66 @@ document.addEventListener('DOMContentLoaded', () => {
             <polyline points="9 18 15 12 9 6"></polyline>
         </svg>
     `;
+    const EXPAND_TRANSITION_MS = 240;
+    const COLLAPSE_TRANSITION_MS = 340;
 
-    function expandBlock(block, arrow) {
-        block.classList.add('expanded');
+    function getStudentExpansionKey(classId, day, studentId) {
+        return `${classId || ''}:${day || ''}:${studentId}`;
+    }
 
+    function openBlockInstant(block) {
         const container = block.querySelector('.collapsible-rows-container');
         if (!container) return;
+        block.classList.add('expanded');
+        container.classList.add('is-open');
+        container.style.height = 'auto';
+        delete container.dataset.transitioning;
+    }
+
+    function expandBlock(block, arrow) {
+        const container = block.querySelector('.collapsible-rows-container');
+        if (!container) return;
+
+        block.classList.add('expanded');
+        if (block.dataset.expansionKey) {
+            expandedStudentRows.add(block.dataset.expansionKey);
+        }
+        container.dataset.transitioning = 'true';
+        container.style.height = '0px';
         container.classList.add('is-open');
 
-        const rows = container.querySelectorAll('.grading-row');
-        rows.forEach((row, i) => {
-            row.animate([
-                { opacity: 0, transform: 'translateY(-10px)' },
-                { opacity: 1, transform: 'translateY(0)' }
-            ], {
-                duration: 160,
-                delay: i * 45,
-                easing: 'cubic-bezier(0.2, 0, 0, 1)',
-                fill: 'forwards'
-            });
+        requestAnimationFrame(() => {
+            container.style.height = `${container.scrollHeight}px`;
         });
+
+        window.setTimeout(() => {
+            if (!block.classList.contains('expanded')) return;
+            container.style.height = 'auto';
+            delete container.dataset.transitioning;
+        }, EXPAND_TRANSITION_MS);
     }
 
     function collapseBlock(block, arrow) {
         block.classList.remove('expanded');
+        if (block.dataset.expansionKey) {
+            expandedStudentRows.delete(block.dataset.expansionKey);
+        }
 
         const container = block.querySelector('.collapsible-rows-container');
         if (!container) return;
 
-        const rows = [...container.querySelectorAll('.grading-row')].reverse();
-        rows.forEach((row, i) => {
-            const anim = row.animate([
-                { opacity: 1, transform: 'translateY(0)' },
-                { opacity: 0, transform: 'translateY(-8px)' }
-            ], {
-                duration: 120,
-                delay: i * 30,
-                easing: 'cubic-bezier(0.4, 0, 1, 1)',
-                fill: 'forwards'
-            });
-            if (i === rows.length - 1) {
-                anim.onfinish = () => container.classList.remove('is-open');
-            }
+        container.dataset.transitioning = 'true';
+        container.style.height = `${container.scrollHeight}px`;
+
+        requestAnimationFrame(() => {
+            container.style.height = '0px';
+            container.classList.remove('is-open');
         });
+
+        window.setTimeout(() => {
+            if (block.classList.contains('expanded')) return;
+            delete container.dataset.transitioning;
+        }, COLLAPSE_TRANSITION_MS);
     }
 
     // ============================
@@ -699,9 +717,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const block = document.createElement('div');
             block.className = 'student-block';
             block.dataset.studentId = student.id;
+            block.dataset.expansionKey = getStudentExpansionKey(activeTabId, selectedDay, student.id);
 
             const hasAnswers = student.answers && student.answers.length > 0;
             const hasMultiple = hasAnswers && student.answers.length > 1;
+            block.classList.toggle('missing-homework', !hasAnswers);
 
             // Helper: build a single row given an answer and whether its student cell is shown
             const buildRow = (answer, showStudentCell) => {
@@ -741,8 +761,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 audioCell.className = 'grading-cell audio-cell';
                 if (answer && answer.audioUrl) {
                     audioCell.innerHTML = `
-                        <div class="audio-player-compact">
-                            <button class="play-mini-btn">▶</button>
+                        <div class="audio-player-compact" tabindex="0" role="button" aria-label="Audio player">
+                            <button class="play-mini-btn" type="button" aria-label="Play audio">▶</button>
                             <div class="scrubber-container">
                                 <div class="scrubber-track">
                                     <div class="scrubber-progress"></div>
@@ -756,11 +776,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Wire audio
                     const audio = audioCell.querySelector('.hidden-audio');
                     const playBtn = audioCell.querySelector('.play-mini-btn');
+                    const audioPlayer = audioCell.querySelector('.audio-player-compact');
                     const progress = audioCell.querySelector('.scrubber-progress');
                     const knob = audioCell.querySelector('.scrubber-knob');
                     const timeDisplay = audioCell.querySelector('.time-display');
 
-                    playBtn.addEventListener('click', () => {
+                    const toggleAudio = () => {
                         if (audio.paused) {
                             document.querySelectorAll('audio').forEach(a => a.pause());
                             document.querySelectorAll('.play-mini-btn').forEach(b => b.textContent = '▶');
@@ -770,6 +791,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             audio.pause();
                             playBtn.textContent = '▶';
                         }
+                    };
+
+                    playBtn.addEventListener('click', toggleAudio);
+                    audioPlayer.addEventListener('keydown', (event) => {
+                        if (event.target === playBtn || (event.key !== ' ' && event.key !== 'Enter')) return;
+                        event.preventDefault();
+                        toggleAudio();
                     });
 
                     audio.addEventListener('timeupdate', () => {
@@ -827,6 +855,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         collapsible.appendChild(buildRow(answer, false));
                     });
                     block.appendChild(collapsible);
+                    if (expandedStudentRows.has(block.dataset.expansionKey)) {
+                        openBlockInstant(block);
+                    }
                 }
             }
 

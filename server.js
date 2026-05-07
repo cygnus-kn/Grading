@@ -67,7 +67,7 @@ function normalizeDays(days) {
   if (dayNumbers.length === 0) return [];
 
   const maxDay = Math.max(...dayNumbers);
-  return Array.from({ length: maxDay }, (_, index) => ({ day: index + 1 }));
+  return Array.from({ length: maxDay }, (_, index) => ({ day: maxDay - index }));
 }
 
 function readCache(classId) {
