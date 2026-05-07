@@ -13,13 +13,32 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- MOCK DATA ---
 const mockSubmissions = {
   1: [
-    { id: 's1', name: 'Alice Smith', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' },
-    { id: 's2', name: 'Bob Johnson', audioUrl: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg' },
-    { id: 's3', name: 'Charlie Brown', audioUrl: 'https://actions.google.com/sounds/v1/water/water_leak.ogg' }
+    { 
+      id: 's1', 
+      name: 'Nguyen Thi Thu Thuy', 
+      answers: [
+        { q: 'Q1', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg', status: 'pending' },
+        { q: 'Q2', audioUrl: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg', status: 'pending' },
+        { q: 'Q3', audioUrl: 'https://actions.google.com/sounds/v1/water/water_leak.ogg', status: 'pending' }
+      ]
+    },
+    { 
+      id: 's2', 
+      name: 'Bob Johnson', 
+      answers: [
+        { q: 'Q1', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg', status: 'pending' }
+      ]
+    }
   ],
   2: [
-    { id: 's1', name: 'Alice Smith', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' },
-    { id: 's4', name: 'Diana Prince', audioUrl: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg' }
+    { 
+      id: 's3', 
+      name: 'Truong Van Mac', 
+      answers: [
+        { q: 'Q1', audioUrl: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg', status: 'pending' },
+        { q: 'Q2', audioUrl: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg', status: 'pending' }
+      ]
+    }
   ]
 };
 

@@ -6,7 +6,21 @@
     <title>Homework Grading</title>
     <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="preload">
+    <script>
+      (function() {
+        try {
+          var currentTheme = localStorage.getItem('theme');
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (currentTheme === 'dark' || (!currentTheme && prefersDark)) {
+            document.body.classList.add('dark-theme');
+          }
+        } catch (e) {}
+        setTimeout(function() {
+          document.body.classList.remove('preload');
+        }, 50);
+      })();
+    </script>
     <!-- Background element for the glass effect to sit on -->
     <div class="ambient-background">
         <div class="blob blob-1"></div>
@@ -14,80 +28,96 @@
     </div>
 
     <div class="app-layout">
+        <!-- Sidebar Toggle (Floats over content) -->
+        <div class="main-top-bar">
+            <button class="sidebar-toggle-btn" id="sidebarCollapseBtn" aria-label="Toggle sidebar">
+                <!-- SVG injected by JS -->
+            </button>
+        </div>
+
         <!-- Sidebar -->
-        <aside class="sidebar glass-panel">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h2>Classes</h2>
+                <!-- Header content if needed -->
             </div>
-            <nav class="sidebar-nav">
-                <a href="#" class="nav-item active">
-                    <span class="nav-icon">📚</span>
-                    Spring 2024 - Section A
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">📚</span>
-                    Spring 2024 - Section B
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">🗣️</span>
-                    Speaking Club
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">📝</span>
-                    Writing Workshop
-                </a>
+            <nav class="sidebar-nav" id="sidebarNav">
+                <!-- Populated by JS -->
             </nav>
+            <div class="sidebar-footer">
+                <div id="themeToggle" class="theme-toggle" role="switch" aria-label="Toggle dark mode" tabindex="0">
+                    <div class="toggle-knob"></div>
+                    <svg class="toggle-icon sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                    <svg class="toggle-icon moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                </div>
+            </div>
+            <div class="sidebar-resize-handle" id="sidebarResizeHandle"></div>
         </aside>
 
+
         <!-- Main Content -->
-        <div class="container glass-panel">
+        <div class="container">
+        <div class="tabs-bar" id="tabsBar">
+            <div class="tab active" data-class="S127">S127</div>
+            <div class="tab" data-class="S128">S128</div>
+        </div>
         <header>
             <div class="header-text">
-                <h1>Assignments</h1>
-                <p>Select a day to review audio submissions.</p>
+                <div class="day-selector-wrapper">
+                    <select id="day-select" class="day-dropdown">
+                        <option value="1">Day 1</option>
+                        <option value="2">Day 2</option>
+                        <option value="3">Day 3</option>
+                    </select>
+                </div>
             </div>
-            <div class="controls">
-                <select id="day-select">
-                    <option value="" disabled selected>Select Day</option>
-                    <option value="1">Day 1</option>
-                    <option value="2">Day 2</option>
-                    <option value="3">Day 3</option>
-                </select>
-                <div id="loading-indicator" class="hidden spinner"></div>
-            </div>
+            <div id="loading-indicator" class="hidden spinner"></div>
         </header>
 
         <main>
             <div id="submissions-list" class="submissions-list">
-                <div class="placeholder-state">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5; margin-bottom: 12px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    <p>No assignments loaded yet.</p>
-                </div>
+                <!-- Content injected by JS -->
             </div>
         </main>
     </div>
     </div> <!-- End app-layout -->
 
-    <!-- Template for a single student row -->
-    <template id="submission-template">
-        <div class="submission-card glass-item">
-            <div class="student-info">
-                <div class="avatar"></div>
-                <h3 class="student-name"></h3>
+    <!-- Template for a Student Group -->
+    <template id="student-template">
+        <div class="student-group">
+            <div class="student-header-box">
+                <span class="student-name"></span>
+                <span class="chevron-icon">▾</span>
+            </div>
+            <div class="answers-container">
+                <!-- Answer rows injected here -->
+            </div>
+        </div>
+    </template>
+
+    <!-- Template for an Answer Row -->
+    <template id="answer-template">
+        <div class="answer-row">
+            <div class="q-label">
+                <span class="q-text"></span>
             </div>
             
-            <div class="audio-player">
-                <audio controls>
-                    <source src="" type="audio/ogg">
-                </audio>
+            <div class="audio-player-compact">
+                <button class="play-mini-btn">▶</button>
+                <div class="scrubber-container">
+                    <div class="scrubber-track">
+                        <div class="scrubber-progress"></div>
+                        <div class="scrubber-knob"></div>
+                    </div>
+                </div>
+                <span class="time-display">00/01</span>
+                <audio class="hidden-audio"></audio>
             </div>
 
-            <div class="feedback-section">
-                <textarea class="feedback-notes input-glass" placeholder="Write feedback notes..."></textarea>
-                <div class="feedback-actions">
-                    <button class="submit-btn btn-glass">Send to Sheets</button>
-                    <span class="status-message"></span>
-                </div>
+            <div class="feedback-mini-section">
+                <input type="text" class="feedback-input" placeholder="Write feedback notes...">
+                <button class="send-btn" title="Send to Sheets">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
             </div>
         </div>
     </template>
