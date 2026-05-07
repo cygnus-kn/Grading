@@ -305,6 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeTabId = savedPosition.activeTabId || openTabs[0]?.id || null;
     const selectedDaysByClass = { ...savedPosition.selectedDaysByClass };
     const expandedStudentRows = new Set();
+    let latestSubmissionsRequestId = 0;
     let didRestoreScrollPosition = false;
 
     function getExpandedClasses() {
@@ -572,6 +573,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const classId = activeTabId;
         selectedDaysByClass[classId] = String(selectedDay);
+        const requestId = ++latestSubmissionsRequestId;
+        const isCurrentRequest = () => (
+            requestId === latestSubmissionsRequestId &&
+            activeTabId === classId &&
+            selectedDaysByClass[classId] === String(selectedDay)
+        );
         
         // --- 1. Check Cache First (Instant Load) ---
         const cacheKey = `gradingSubmissions_${classId}_${selectedDay}`;
@@ -580,6 +587,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cachedData) {
             try {
                 const data = JSON.parse(cachedData);
+                if (!isCurrentRequest()) return;
                 dayBadge.textContent = getDayLabel(classId, selectedDay);
                 renderDayDropdown();
                 updateSidebarSelection(classId, selectedDay);
@@ -599,6 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`/api/submissions?class=${encodeURIComponent(classId)}&day=${selectedDay}`);
             const data = await response.json();
+            if (!isCurrentRequest()) return;
             
             // Save to cache for next time
             localStorage.setItem(cacheKey, JSON.stringify(data));
@@ -613,6 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderGradingTable(data, selectedDay);
             restoreMainScrollPosition();
         } catch (error) {
+            if (!isCurrentRequest()) return;
             console.error('Error:', error);
             loadingIndicator.classList.add('hidden');
         }

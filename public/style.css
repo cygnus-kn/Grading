@@ -355,19 +355,13 @@ body.dark-theme .class-header:hover {
   justify-content: center;
   flex-shrink: 0;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: color var(--transition-fast);
 }
 
 .class-chevron-btn:hover,
 .class-chevron-btn:focus-visible {
-  background: var(--color-surface-hover);
   color: var(--color-accent);
   outline: none;
-}
-
-body.dark-theme .class-chevron-btn:hover,
-body.dark-theme .class-chevron-btn:focus-visible {
-  background: rgba(255, 255, 255, 0.1);
 }
 
 .class-chevron {
@@ -860,6 +854,10 @@ body.dark-theme .grading-header .grading-cell {
 .student-block {
     display: flex;
     flex-direction: column;
+    gap: 0;
+}
+
+.student-block.expanded {
     gap: var(--gt-gap);
 }
 
