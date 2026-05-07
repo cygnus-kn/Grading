@@ -196,6 +196,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return `Day ${dayNumber}`;
     }
 
+    function getAudioDisplayName(answer) {
+        const name = answer?.name || answer?.q || '';
+        return name.replace(/\.[^/.]+$/, '');
+    }
+
     function isKnownClass(className) {
         return Boolean(CLASSES_DATA[className]);
     }
@@ -752,7 +757,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const nameCell = document.createElement('div');
                 nameCell.className = 'grading-cell name-cell';
                 if (answer && (answer.name || answer.q)) {
-                    nameCell.innerHTML = `<span class="name-text">${answer.name || answer.q}</span>`;
+                    nameCell.innerHTML = `<span class="name-text">${getAudioDisplayName(answer)}</span>`;
                 }
                 row.appendChild(nameCell);
 
@@ -919,7 +924,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const nameChromeWidth = sampleNameCell ? cellChromeWidth(sampleNameCell) : 0;
             students.forEach(student => {
                 (student.answers || []).forEach(answer => {
-                    const label = answer.name || answer.q || '';
+                    const label = getAudioDisplayName(answer);
                     nameWidth = Math.max(nameWidth, Math.ceil(textWidth(label, sampleNameText) + nameChromeWidth));
                 });
             });
