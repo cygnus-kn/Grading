@@ -14,23 +14,29 @@ const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
 const KEY_FILE = path.join(__dirname, 'credentials.json');
 
 let auth;
-if (process.env.GOOGLE_CREDENTIALS) {
-  // Use environment variable (for Vercel)
-  console.log('Using GOOGLE_CREDENTIALS environment variable');
-  auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
-    scopes: SCOPES,
-  });
-} else {
-  // Use local file (for localhost)
-  console.log('Using local credentials.json file');
-  auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: SCOPES,
-  });
-}
+let drive = null;
 
-const drive = google.drive({ version: 'v3', auth });
+try {
+  if (process.env.GOOGLE_CREDENTIALS) {
+    console.log('Using GOOGLE_CREDENTIALS environment variable');
+    auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
+      scopes: SCOPES,
+    });
+    drive = google.drive({ version: 'v3', auth });
+  } else if (fs.existsSync(KEY_FILE)) {
+    console.log('Using local credentials.json file');
+    auth = new google.auth.GoogleAuth({
+      keyFile: KEY_FILE,
+      scopes: SCOPES,
+    });
+    drive = google.drive({ version: 'v3', auth });
+  } else {
+    console.error('CRITICAL: No Google credentials found (env or file). API will fail.');
+  }
+} catch (err) {
+  console.error('Error initializing Google Auth:', err.message);
+}
 
 // Map Class IDs to Google Drive Folder IDs
 const CLASS_FOLDERS = {
@@ -71,6 +77,7 @@ function writeCache(classId, data) {
  * Lists all student folders in a class folder
  */
 async function getStudentFolders(parentFolderId) {
+  if (!drive) throw new Error('Drive API not initialized');
   const res = await drive.files.list({
     q: `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
@@ -83,6 +90,7 @@ async function getStudentFolders(parentFolderId) {
  * Finds a specific "Day" folder inside a student folder (fuzzy match)
  */
 async function findDayFolder(studentFolderId, targetDay) {
+  if (!drive) throw new Error('Drive API not initialized');
   const res = await drive.files.list({
     q: `'${studentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
@@ -103,6 +111,7 @@ async function findDayFolder(studentFolderId, targetDay) {
  * Lists audio files in a folder
  */
 async function getAudioFiles(folderId) {
+  if (!drive) throw new Error('Drive API not initialized');
   const res = await drive.files.list({
     q: `'${folderId}' in parents and (mimeType contains 'audio/' or mimeType = 'application/octet-stream') and trashed = false`,
     fields: 'files(id, name, mimeType)',
@@ -123,6 +132,7 @@ function parseDayNumber(folderName) {
 }
 
 async function scanDaysFromDrive(rootFolderId) {
+  if (!drive) throw new Error('Drive API not initialized');
   const students = await getStudentFolders(rootFolderId);
   const daySetMap = new Map();
 
@@ -248,6 +258,7 @@ app.get('/api/submissions', async (req, res) => {
 
 // Proxy route to stream audio from Google Drive
 app.get('/api/audio/:fileId', async (req, res) => {
+  if (!drive) return res.status(500).send('Drive API not initialized');
   try {
     const fileId = req.params.fileId;
     const response = await drive.files.get(
