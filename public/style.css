@@ -810,44 +810,6 @@ body.dark-theme .grading-header .grading-cell {
     background: rgba(255, 255, 255, 0.06);
 }
 
-/* Resizer Handle */
-.resizer {
-    position: absolute;
-    top: 0;
-    right: -4px;
-    width: 8px;
-    height: 100%;
-    cursor: col-resize;
-    z-index: 10;
-    transition: background var(--transition-fast);
-    border-radius: 4px;
-}
-
-.resizer:hover,
-.resizer.is-resizing {
-    background: var(--color-accent);
-}
-
-.resizer::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: 25%;
-    bottom: 25%;
-    width: 1px;
-    background: rgba(0, 0, 0, 0.1);
-    transform: translateX(-0.5px);
-}
-
-body.dark-theme .resizer::after {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.resizer:hover::after,
-.resizer.is-resizing::after {
-    background: white;
-}
-
 /* Body */
 .grading-body {
     display: flex;

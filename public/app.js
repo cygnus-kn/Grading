@@ -26,10 +26,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const workspace = document.querySelector('.container');
     const mainContent = document.querySelector('main');
     const APP_POSITION_KEY = 'gradingAppPosition';
-    const COLUMN_WIDTHS_KEY = 'gradingColumnWidths';
-
-    // Default columns: Student, Name, Audio, Comments
-    let columnWidths = [200, 130, 300, 300]; 
 
     // ============================
     //  Sidebar Logic
@@ -64,6 +60,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const theme = document.body.classList.contains('dark-theme') ? 'dark' : 'light';
         localStorage.setItem('theme', theme);
     });
+
+    // --- INITIALIZATION ---
+    // Load class folders and days
+    fetch('/api/classes')
+        .then(res => res.json())
+        .then(classes => {
+            classes.forEach(c => {
+                if (CLASSES_DATA[c.id]) {
+                    CLASSES_DATA[c.id].days = c.days;
+                    CLASSES_DATA[c.id].loaded = true;
+                }
+            });
+            renderSidebar();
+            restoreCurrentPosition();
+        })
+        .catch(err => console.error('Error loading classes:', err));
 
     const savedSidebarWidth = localStorage.getItem('sidebarWidth');
     if (savedSidebarWidth) {
@@ -229,17 +241,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function readSavedPosition() {
-        // Restore column widths
-        const savedWidths = localStorage.getItem(COLUMN_WIDTHS_KEY);
-        if (savedWidths) {
-            try {
-                columnWidths = JSON.parse(savedWidths);
-                updateColumnStyles();
-            } catch (e) {
-                console.error('Error parsing column widths', e);
-            }
-        }
-
         const fallback = {
             openTabs: [],
             activeTabId: null,
@@ -674,19 +675,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const headerRow = document.createElement('div');
         headerRow.className = 'grading-row';
         headerRow.innerHTML = `
-            <div class="grading-cell header-cell" data-index="0">Student<div class="resizer"></div></div>
-            <div class="grading-cell header-cell" data-index="1">Name<div class="resizer"></div></div>
-            <div class="grading-cell header-cell" data-index="2">Audio<div class="resizer"></div></div>
-            <div class="grading-cell header-cell" data-index="3">Comments</div>
+            <div class="grading-cell header-cell">Student</div>
+            <div class="grading-cell header-cell">Name</div>
+            <div class="grading-cell header-cell">Audio</div>
+            <div class="grading-cell header-cell">Comments</div>
         `;
         header.appendChild(headerRow);
         table.appendChild(header);
-
-        // Wire resizers
-        const resizers = headerRow.querySelectorAll('.resizer');
-        resizers.forEach(resizer => {
-            resizer.addEventListener('mousedown', initResize);
-        });
 
         // Body
         const body = document.createElement('div');
@@ -855,7 +850,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    restoreCurrentPosition();
 
     dayBadge.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -885,61 +879,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const s = Math.floor(seconds % 60);
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
-
-    // ============================
-    //  Column Resizing Logic
-    // ============================
-    let activeResizer = null;
-    let startX = 0;
-    let startWidth = 0;
-    let colIndex = -1;
-
-    function initResize(e) {
-        activeResizer = e.target;
-        activeResizer.classList.add('is-resizing');
-        colIndex = parseInt(activeResizer.parentElement.dataset.index);
-        startX = e.pageX;
-        startWidth = activeResizer.parentElement.offsetWidth;
-
-        document.addEventListener('mousemove', handleResize);
-        document.addEventListener('mouseup', stopResize);
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-    }
-
-    function handleResize(e) {
-        if (!activeResizer) return;
-        const diff = e.pageX - startX;
-        const newWidth = Math.max(80, startWidth + diff);
-        columnWidths[colIndex] = newWidth;
-        updateColumnStyles();
-    }
-
-    function stopResize() {
-        if (activeResizer) {
-            activeResizer.classList.remove('is-resizing');
-        }
-        activeResizer = null;
-        document.removeEventListener('mousemove', handleResize);
-        document.removeEventListener('mouseup', stopResize);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
-    }
-
-    function updateColumnStyles() {
-        const columnsTemplate = columnWidths.map((w, i) => {
-            // Last column or columns with high width could be 1fr, 
-            // but for resizing it's easier to use px values for the first 3 
-            // and maybe 1fr for the last if we want it to fill.
-            // However, to make all resizable, px is better.
-            return i === 3 ? '1fr' : `${w}px`;
-        }).join(' ');
-        document.documentElement.style.setProperty('--gt-columns', columnsTemplate);
-    }
-
-    // Initialize columns
-    updateColumnStyles();
 
     async function submitFeedback(studentId, day, question, notes, buttonEl) {
         if (!notes.trim()) return;

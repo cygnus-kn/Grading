@@ -121,6 +121,15 @@ async function getAudioFiles(folderId) {
 
 // --- API ROUTES ---
 
+app.get('/api/classes', (req, res) => {
+  const classes = Object.keys(CLASS_FOLDERS).map(id => ({
+    id,
+    days: readCache(id) || [],
+  }));
+
+  res.json(classes);
+});
+
 /**
  * Parses a day number from a folder name.
  * Handles: "Day 16", "Day16", "D16", "Ngày 16", "day 16", "Day016" etc.
@@ -149,9 +158,15 @@ async function scanDaysFromDrive(rootFolderId) {
     });
   }));
 
-  return [...daySetMap.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([num]) => ({ day: num }));
+  const allDays = Array.from(daySetMap.keys()).sort((a, b) => a - b);
+  const maxDay = allDays.length > 0 ? allDays[allDays.length - 1] : 0;
+  
+  const finalDays = [];
+  for (let i = 1; i <= maxDay; i++) {
+    finalDays.push({ day: i });
+  }
+
+  return finalDays;
 }
 
 // Get all available days for a class — reads from file cache, scans Drive on miss
@@ -183,7 +198,7 @@ app.get('/api/days', async (req, res) => {
 
 // Force re-scan and update cache (call this when new students/days are added)
 app.post('/api/cache/refresh', async (req, res) => {
-  const { class: classId } = req.body;
+  const classId = req.body ? req.body.class : null;
   const targets = classId ? [classId] : Object.keys(CLASS_FOLDERS);
 
   const results = {};
