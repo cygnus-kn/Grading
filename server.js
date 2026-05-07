@@ -13,10 +13,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
 const KEY_FILE = path.join(__dirname, 'credentials.json');
 
-const auth = new google.auth.GoogleAuth({
-  keyFile: KEY_FILE,
-  scopes: SCOPES,
-});
+let auth;
+if (process.env.GOOGLE_CREDENTIALS) {
+  // Use environment variable (for Vercel)
+  console.log('Using GOOGLE_CREDENTIALS environment variable');
+  auth = new google.auth.GoogleAuth({
+    credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
+    scopes: SCOPES,
+  });
+} else {
+  // Use local file (for localhost)
+  console.log('Using local credentials.json file');
+  auth = new google.auth.GoogleAuth({
+    keyFile: KEY_FILE,
+    scopes: SCOPES,
+  });
+}
 
 const drive = google.drive({ version: 'v3', auth });
 
@@ -28,7 +40,11 @@ const CLASS_FOLDERS = {
 
 // --- FILE CACHE SETUP ---
 const CACHE_DIR = path.join(__dirname, 'cache');
-if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
+try {
+  if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
+} catch (e) {
+  console.warn('Could not create cache directory (this is normal on Vercel)');
+}
 
 function getCachePath(classId) {
   return path.join(CACHE_DIR, `days-${classId}.json`);
@@ -43,7 +59,11 @@ function readCache(classId) {
 }
 
 function writeCache(classId, data) {
-  fs.writeFileSync(getCachePath(classId), JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(getCachePath(classId), JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.warn(`[cache] Failed to write cache for ${classId} (skipping)`);
+  }
 }
 // --- HELPER FUNCTIONS ---
 
