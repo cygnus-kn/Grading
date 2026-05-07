@@ -247,32 +247,80 @@ body.dark-theme .sidebar-header {
 }
 
 /* Sidebar Class Styling */
+.class-group {
+  margin-bottom: var(--space-xs);
+}
+
 .class-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  margin: 8px 0;
+  margin: 8px 8px 4px;
   border-radius: 9999px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text-secondary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-bg);
   border: 1px solid var(--color-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
   transition: all var(--transition-smooth);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .class-header:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.class-group.active .class-header {
+  border-color: var(--color-accent);
   color: var(--color-text-primary);
 }
 
+body.dark-theme .class-header {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+body.dark-theme .class-group.active .class-header {
+  border-color: var(--color-accent);
+}
+
+body.dark-theme .class-header:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .class-count-badge {
+  display: inline-block;
+  flex-shrink: 0;
   font-size: 11px;
-  background: rgba(0, 0, 0, 0.05);
-  padding: 2px 8px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--color-border);
+  padding: 2px 0;
   border-radius: 999px;
+  width: 39px;
+  min-width: 39px;
+  text-align: center;
+  transition: all var(--transition-fast);
+}
+
+.class-header:hover .class-count-badge {
+  background: var(--color-surface-hover);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+body.dark-theme .class-count-badge {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .class-children {
@@ -313,20 +361,24 @@ body.dark-theme .sidebar-header {
    Layout & Container
    ============================ */
 .app-layout {
-    display: flex;
+    display: block;
     width: 100%;
     padding-left: calc(var(--sidebar-width) + 32px);
-    transition: padding-left var(--transition-smooth);
+    padding-right: 32px;
+    transition:
+      padding-left var(--transition-smooth),
+      padding-right var(--transition-smooth);
 }
 
 body:has(.sidebar.collapsed) .app-layout {
     padding-left: 32px;
+    padding-right: 32px;
 }
 
 .container {
-    flex-grow: 1;
-    max-width: 1100px;
-    margin: 32px 32px 32px 0;
+    width: 100%;
+    height: calc(100dvh - var(--sidebar-top-offset) - 16px);
+    margin: var(--sidebar-top-offset) 0 16px;
     background: var(--glass-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -338,36 +390,125 @@ body:has(.sidebar.collapsed) .app-layout {
     overflow: hidden;
 }
 
+.container.workspace-empty .tabs-bar,
+.container.workspace-empty header,
+.container.workspace-empty main {
+    display: none;
+}
+
 /* Tabs */
 .tabs-bar {
+    --tab-strip-bg: #e9eaee;
+    --tab-active-bg: var(--color-bg);
+    --tab-inactive-bg: transparent;
     display: flex;
-    padding: 0 20px;
-    background: rgba(0, 0, 0, 0.05);
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 8px;
+    background: var(--tab-strip-bg);
     border-bottom: 1px solid var(--glass-border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+
+.tabs-bar::-webkit-scrollbar {
+    display: none;
 }
 
 .tab {
-    padding: 12px 24px;
-    font-size: 15px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex: 0 0 132px;
+    min-width: 112px;
+    max-width: 148px;
+    height: 32px;
+    padding: 0 10px 0 16px;
+    border: none;
+    border-radius: 12px;
+    background: var(--tab-inactive-bg);
+    font-size: 13px;
     font-weight: 600;
     color: var(--color-text-secondary);
     cursor: pointer;
-    border-right: 1px solid rgba(0, 0, 0, 0.05);
-    transition: all 0.2s;
+    transition:
+      background var(--transition-fast),
+      color var(--transition-fast),
+      box-shadow var(--transition-fast);
+    user-select: none;
 }
 
 .tab:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.55);
+    color: var(--color-text-primary);
 }
 
 .tab.active {
-    background: var(--color-bg);
+    background: var(--tab-active-bg);
     color: var(--color-text-primary);
-    border-bottom: 2px solid var(--color-accent);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.12),
+      0 4px 10px rgba(0, 0, 0, 0.10);
 }
 
-body.dark-theme .tab.active {
-    background: rgba(255, 255, 255, 0.05);
+.tab-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tab-close {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-text-tertiary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition:
+      background var(--transition-fast),
+      color var(--transition-fast);
+}
+
+.tab-close:hover,
+.tab-close:focus-visible {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+    outline: none;
+}
+
+.tabs-empty {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+
+body.dark-theme .tabs-bar {
+    --tab-strip-bg: #1d2331;
+    --tab-active-bg: #2a3142;
+    --tab-inactive-bg: transparent;
+    background: var(--tab-strip-bg);
+}
+
+body.dark-theme .tab:hover {
+    background: #222b42;
+}
+
+body.dark-theme .tab-close:hover,
+body.dark-theme .tab-close:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
 }
 
 header {
@@ -660,4 +801,3 @@ body.dark-theme .moon-icon { opacity: 1; }
         gap: 16px;
     }
 }
-

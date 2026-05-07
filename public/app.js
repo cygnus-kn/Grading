@@ -7,6 +7,8 @@ const CLASSES_DATA = {
     'S003': { days: [1, 4, 5] }
 };
 
+const DEFAULT_TABS = [];
+
 document.addEventListener('DOMContentLoaded', () => {
     const sidebarNav = document.getElementById('sidebarNav');
     const sidebar = document.getElementById('sidebar');
@@ -20,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const studentTemplate = document.getElementById('student-template');
     const answerTemplate = document.getElementById('answer-template');
     const tabsBar = document.getElementById('tabsBar');
+    const workspace = document.querySelector('.container');
 
     // ============================
     //  Sidebar Logic
@@ -88,13 +91,13 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const [className, data] of Object.entries(CLASSES_DATA)) {
             html += `
                 <div class="class-group" data-class="${className}">
-                    <div class="class-header" onclick="window.toggleClass('${className}')">
+                    <div class="class-header" onclick="window.openClassFromSidebar('${className}')">
                         <span>${className}</span>
                         <span class="class-count-badge">${data.days.length}</span>
                     </div>
                     <div class="class-children">
                         ${data.days.map(day => `
-                            <div class="date-entry" onclick="window.selectDay('${day}')">
+                            <div class="date-entry" data-class="${className}" data-day="${day}" onclick="window.selectHomework('${className}', '${day}')">
                                 <span>Day ${day}</span>
                             </div>
                         `).join('')}
@@ -105,31 +108,167 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarNav.innerHTML = html;
     }
 
-    window.toggleClass = (className) => {
+    window.openClassFromSidebar = (className) => {
         const group = document.querySelector(`.class-group[data-class="${className}"]`);
-        group.classList.toggle('expanded');
+        group.classList.add('expanded');
+        openClassTab(className);
     };
 
-    window.selectDay = (day) => {
+    window.selectHomework = (className, day) => {
+        openClassTab(className, day);
+    };
+
+    function updateDayOptions(className, selectedDay) {
+        const days = CLASSES_DATA[className]?.days || [1, 2, 3];
+        const nextDay = selectedDay || (days.includes(Number(daySelect.value)) ? daySelect.value : days[0]);
+
+        daySelect.innerHTML = days.map(day => (
+            `<option value="${day}">Day ${day}</option>`
+        )).join('');
+
+        daySelect.value = String(nextDay);
+    }
+
+    function updateSidebarSelection(className, day) {
+        document.querySelectorAll('.class-group').forEach(group => {
+            group.classList.toggle('active', group.dataset.class === className);
+        });
+
+        document.querySelectorAll('.date-entry').forEach(entry => {
+            const isActive = entry.dataset.class === className && entry.dataset.day === String(day);
+            entry.classList.toggle('active', isActive);
+        });
+    }
+
+    function clearSidebarSelection() {
+        document.querySelectorAll('.class-group, .date-entry').forEach(entry => {
+            entry.classList.remove('active');
+        });
+    }
+
+    function selectDay(day) {
         daySelect.value = day;
         daySelect.dispatchEvent(new Event('change'));
-        document.querySelectorAll('.date-entry').forEach(el => {
-            el.classList.toggle('active', el.textContent.trim() === `Day ${day}`);
-        });
-    };
+    }
 
     renderSidebar();
 
     // ============================
     //  Tab Switching
     // ============================
+    let openTabs = DEFAULT_TABS.map(tab => ({ ...tab }));
+    let activeTabId = openTabs[0]?.id || null;
+
+    function renderTabs() {
+        workspace.classList.toggle('workspace-empty', openTabs.length === 0);
+
+        if (openTabs.length === 0) {
+            tabsBar.innerHTML = '';
+            return;
+        }
+
+        tabsBar.innerHTML = openTabs.map(tab => {
+            const isActive = tab.id === activeTabId;
+            return `
+                <div
+                    class="tab${isActive ? ' active' : ''}"
+                    data-class="${tab.id}"
+                    role="tab"
+                    tabindex="0"
+                    aria-selected="${isActive}"
+                    title="${tab.label}"
+                >
+                    <span class="tab-title">${tab.label}</span>
+                    <button class="tab-close" type="button" aria-label="Close ${tab.label}">
+                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                            <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        </svg>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function showEmptyWorkspace() {
+        loadingIndicator.classList.add('hidden');
+        submissionsList.innerHTML = '';
+    }
+
+    function activateTab(tabId) {
+        if (activeTabId === tabId) return;
+        activeTabId = tabId;
+        updateDayOptions(activeTabId);
+        renderTabs();
+        daySelect.dispatchEvent(new Event('change'));
+    }
+
+    function openClassTab(className, day) {
+        if (!openTabs.some(tab => tab.id === className)) {
+            openTabs.push({ id: className, label: className });
+        }
+
+        activeTabId = className;
+        updateDayOptions(className, day);
+        renderTabs();
+        updateSidebarSelection(className, daySelect.value);
+        selectDay(daySelect.value);
+    }
+
+    function closeTab(tabId) {
+        const closingIndex = openTabs.findIndex(tab => tab.id === tabId);
+        if (closingIndex === -1) return;
+
+        const wasActive = activeTabId === tabId;
+        openTabs = openTabs.filter(tab => tab.id !== tabId);
+
+        if (wasActive) {
+            const nextTab = openTabs[Math.min(closingIndex, openTabs.length - 1)];
+            activeTabId = nextTab ? nextTab.id : null;
+            if (activeTabId) updateDayOptions(activeTabId);
+        }
+
+        renderTabs();
+
+        if (!activeTabId) {
+            clearSidebarSelection();
+            showEmptyWorkspace();
+            return;
+        }
+
+        if (wasActive) {
+            daySelect.dispatchEvent(new Event('change'));
+        }
+    }
+
     tabsBar.addEventListener('click', (e) => {
+        const closeBtn = e.target.closest('.tab-close');
+        if (closeBtn) {
+            const tab = closeBtn.closest('.tab');
+            closeTab(tab.dataset.class);
+            return;
+        }
+
         const tab = e.target.closest('.tab');
         if (!tab) return;
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        daySelect.dispatchEvent(new Event('change'));
+        activateTab(tab.dataset.class);
     });
+
+    tabsBar.addEventListener('keydown', (e) => {
+        const closeBtn = e.target.closest('.tab-close');
+        if (closeBtn && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            closeTab(closeBtn.closest('.tab').dataset.class);
+            return;
+        }
+
+        const tab = e.target.closest('.tab');
+        if (tab && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            activateTab(tab.dataset.class);
+        }
+    });
+
+    renderTabs();
 
     // ============================
     //  App Logic
@@ -137,14 +276,19 @@ document.addEventListener('DOMContentLoaded', () => {
     daySelect.addEventListener('change', async (e) => {
         const selectedDay = e.target.value;
         if (!selectedDay) return;
+        if (!activeTabId) {
+            showEmptyWorkspace();
+            return;
+        }
 
         loadingIndicator.classList.remove('hidden');
         submissionsList.innerHTML = '';
 
         try {
-            const response = await fetch(`/api/submissions?day=${selectedDay}`);
+            const response = await fetch(`/api/submissions?class=${encodeURIComponent(activeTabId)}&day=${selectedDay}`);
             const data = await response.json();
             loadingIndicator.classList.add('hidden');
+            updateSidebarSelection(activeTabId, selectedDay);
 
             if (data.length === 0) {
                 submissionsList.innerHTML = `<div class="placeholder-state"><p>No submissions found.</p></div>`;
@@ -209,6 +353,8 @@ document.addEventListener('DOMContentLoaded', () => {
             loadingIndicator.classList.add('hidden');
         }
     });
+
+    daySelect.dispatchEvent(new Event('change'));
 
     function formatTime(seconds) {
         const mins = Math.floor(seconds / 60);
