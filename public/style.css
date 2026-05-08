@@ -361,11 +361,15 @@ body.dark-theme .class-header:hover {
 }
 
 .class-count-badge {
+  position: relative;
+  appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  padding: 0;
   font-size: 11px;
+  font-family: inherit;
   font-weight: 600;
   color: var(--color-text-secondary);
   background: var(--control-bg);
@@ -375,13 +379,97 @@ body.dark-theme .class-header:hover {
   width: 39px;
   min-width: 39px;
   text-align: center;
+  cursor: pointer;
   transition: all var(--transition-fast);
+}
+
+.class-count-badge:disabled {
+  cursor: wait;
 }
 
 .class-header:hover .class-count-badge {
   background: var(--control-bg-hover);
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+
+.class-count-value,
+.class-refresh-icon,
+.class-count-spinner {
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.class-count-value {
+  opacity: 1;
+}
+
+.class-refresh-icon {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transform: scale(0.82) rotate(-20deg);
+}
+
+.class-count-spinner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0.82);
+}
+
+@media (hover: hover) {
+  .class-count-badge:hover .class-count-value {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  .class-count-badge:hover .class-refresh-icon {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.class-count-badge.is-loading .class-count-value,
+.class-count-badge.is-loading .class-refresh-icon,
+.class-count-badge.is-error .class-count-value,
+.class-count-badge.is-error .class-refresh-icon {
+  opacity: 0;
+}
+
+.class-count-badge.is-loading .class-count-spinner {
+  opacity: 1;
+  transform: scale(1);
+  animation: class-count-spin 720ms linear infinite;
+}
+
+.class-count-badge.is-error {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.class-count-badge.is-error::after {
+  content: "!";
+  position: absolute;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@keyframes class-count-spin {
+  to {
+    transform: scale(1) rotate(360deg);
+  }
 }
 
 body.dark-theme .class-count-badge {

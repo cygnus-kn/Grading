@@ -4,7 +4,7 @@
 // Cache: classId -> { days: [{ day: N }], loaded: bool }
 const CLASSES_DATA = {
     'S001': { days: [], loaded: false },
-    'S002': { days: [], loaded: false },
+    'S305': { days: [], loaded: false },
     'S003': { days: [], loaded: false }
 };
 
@@ -125,7 +125,22 @@ document.addEventListener('DOMContentLoaded', () => {
                             <span>${className}</span>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <span class="class-count-badge">${data.days.length}</span>
+                            <button
+                                class="class-count-badge"
+                                type="button"
+                                title="Refresh days"
+                                aria-label="Refresh days for ${className}"
+                                onclick="window.refreshClassDays(event, '${className}')"
+                            >
+                                <span class="class-count-value">${data.days.length}</span>
+                                <svg class="class-refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/>
+                                    <path d="M3 21v-5h5"/>
+                                    <path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/>
+                                    <path d="M21 3v5h-5"/>
+                                </svg>
+                                <span class="class-count-spinner" aria-hidden="true"></span>
+                            </button>
                             <svg class="class-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="6 9 12 15 18 9"/>
                             </svg>
@@ -153,7 +168,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update badge count
         const badge = group.querySelector('.class-count-badge');
-        if (badge) badge.textContent = days.length;
+        if (badge) {
+            badge.classList.remove('is-loading', 'is-error');
+            badge.disabled = false;
+            badge.setAttribute('aria-label', `Refresh days for ${className}`);
+            const value = badge.querySelector('.class-count-value');
+            if (value) value.textContent = days.length;
+        }
 
         // Re-render children
         const children = group.querySelector('.class-children');
@@ -164,6 +185,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `).join('');
         }
+    }
+
+    function setClassRefreshState(className, state) {
+        const badge = sidebarNav.querySelector(`.class-group[data-class="${className}"] .class-count-badge`);
+        if (!badge) return;
+
+        const isLoading = state === 'loading';
+        const isError = state === 'error';
+        badge.classList.toggle('is-loading', isLoading);
+        badge.classList.toggle('is-error', isError);
+        badge.disabled = isLoading;
+        badge.setAttribute(
+            'aria-label',
+            isLoading
+                ? `Refreshing days for ${className}`
+                : isError
+                    ? `Refresh failed for ${className}`
+                    : `Refresh days for ${className}`
+        );
     }
 
     window.handleClassHeaderClick = (event, className) => {
@@ -184,6 +224,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.selectHomework = (className, day) => {
         openClassTab(className, day);
+    };
+
+    window.refreshClassDays = async (event, className) => {
+        event.stopPropagation();
+        event.preventDefault();
+
+        const classData = CLASSES_DATA[className];
+        if (!classData) return;
+
+        setClassRefreshState(className, 'loading');
+
+        try {
+            const res = await fetch('/api/cache/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ class: className })
+            });
+
+            if (!res.ok) throw new Error(`Refresh failed with ${res.status}`);
+
+            const result = await res.json();
+            const refreshedCount = result?.refreshed?.[className];
+            if (typeof refreshedCount !== 'number') {
+                throw new Error(typeof refreshedCount === 'string' ? refreshedCount : 'Refresh failed');
+            }
+
+            (result.clearBrowserKeys || [`gradingDays_${className}`]).forEach(key => {
+                localStorage.removeItem(key);
+            });
+
+            classData.loaded = false;
+            classData.days = [];
+            await loadDaysForClass(className);
+
+            const latestDay = getLatestDayValue(className);
+            if (activeTabId === className) {
+                const currentDay = selectedDaysByClass[className];
+                const nextDay = currentDay && isKnownDay(className, currentDay) ? currentDay : latestDay;
+                updateDayOptions(className, nextDay);
+                updateSidebarSelection(className, nextDay);
+                if (nextDay && nextDay !== currentDay) selectDay(nextDay);
+            }
+
+            setClassRefreshState(className, 'idle');
+        } catch (err) {
+            console.error(`Failed to refresh ${className}:`, err);
+            setClassRefreshState(className, 'error');
+            window.setTimeout(() => setClassRefreshState(className, 'idle'), 1600);
+        }
     };
 
     function getClassDays(className) {
@@ -864,8 +953,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const knob = audioCell.querySelector('.scrubber-knob');
                     const timeDisplay = audioCell.querySelector('.time-display');
 
+                    const hasUsableDuration = () => Number.isFinite(audio.duration) && audio.duration > 0;
+
+                    const updateDurationDisplay = () => {
+                        timeDisplay.textContent = hasUsableDuration() ? formatTime(audio.duration) : '--:--';
+                    };
+
                     const updateRemainingTime = () => {
-                        if (!Number.isFinite(audio.duration)) return;
+                        if (!hasUsableDuration()) {
+                            timeDisplay.textContent = '--:--';
+                            return;
+                        }
                         const remaining = Math.max(0, audio.duration - audio.currentTime);
                         timeDisplay.textContent = formatTime(remaining);
                     };
@@ -889,12 +987,16 @@ document.addEventListener('DOMContentLoaded', () => {
                         toggleAudio();
                     });
 
-                    audio.addEventListener('loadedmetadata', () => {
-                        timeDisplay.textContent = formatTime(audio.duration);
-                    });
+                    audio.addEventListener('loadedmetadata', updateDurationDisplay);
+                    audio.addEventListener('durationchange', updateDurationDisplay);
 
                     audio.addEventListener('timeupdate', () => {
-                        if (!audio.duration) return;
+                        if (!hasUsableDuration()) {
+                            progress.style.width = '0%';
+                            knob.style.left = '0%';
+                            timeDisplay.textContent = '--:--';
+                            return;
+                        }
                         const pct = (audio.currentTime / audio.duration) * 100;
                         progress.style.width = `${pct}%`;
                         knob.style.left = `${pct}%`;
@@ -905,7 +1007,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         playBtn.textContent = '▶';
                         progress.style.width = '0%';
                         knob.style.left = '0%';
-                        timeDisplay.textContent = formatTime(audio.duration);
+                        updateDurationDisplay();
                     });
                 }
                 row.appendChild(audioCell);
@@ -1076,7 +1178,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('beforeunload', savePosition);
 
     function formatTime(seconds) {
-        if (isNaN(seconds)) return '00:00';
+        if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
         const m = Math.floor(seconds / 60);
         const s = Math.floor(seconds % 60);
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;

@@ -40,11 +40,21 @@ try {
 
 // Map Class IDs to Google Drive Folder IDs
 const CLASS_FOLDERS = {
-  'S001': '1d_JaEf8uEJgLaAlahXkku_HXX9baO7Ss',
+  'S001': {
+    folderId: '1d_JaEf8uEJgLaAlahXkku_HXX9baO7Ss',
+    layout: 'student-first',
+  },
+  'S305': {
+    folderId: '1z_Y1tQN0o_cuAW-M0oh-Hp5ELqYSPrMN',
+    layout: 'day-first',
+  },
   // Add other IDs here when available
 };
 
 const DRIVE_RETRY_DELAYS_MS = [500, 1500, 3500];
+const SUBMISSIONS_CACHE_TTL_MS = 5 * 60 * 1000;
+const submissionsMemoryCache = new Map();
+const dayFoldersMemoryCache = new Map();
 
 // --- FILE CACHE SETUP ---
 const CACHE_DIR = path.join(__dirname, 'cache');
@@ -61,13 +71,13 @@ function getCachePath(classId) {
 function normalizeDays(days) {
   if (!Array.isArray(days)) return null;
 
-  const dayNumbers = days
+  const dayNumbers = [...new Set(days
     .map(item => Number(item && item.day))
-    .filter(Number.isInteger);
+    .filter(Number.isInteger))]
+    .sort((a, b) => b - a);
   if (dayNumbers.length === 0) return [];
 
-  const maxDay = Math.max(...dayNumbers);
-  return Array.from({ length: maxDay }, (_, index) => ({ day: maxDay - index }));
+  return dayNumbers.map(day => ({ day }));
 }
 
 function readCache(classId) {
@@ -84,6 +94,70 @@ function writeCache(classId, data) {
   } catch (e) {
     console.warn(`[cache] Failed to write cache for ${classId} (skipping)`);
   }
+}
+
+function getSubmissionsCacheKey(classId, day) {
+  return `${classId}:${day}`;
+}
+
+function readSubmissionsCache(classId, day) {
+  const cached = submissionsMemoryCache.get(getSubmissionsCacheKey(classId, day));
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > SUBMISSIONS_CACHE_TTL_MS) {
+    submissionsMemoryCache.delete(getSubmissionsCacheKey(classId, day));
+    return null;
+  }
+  return cached.data;
+}
+
+function writeSubmissionsCache(classId, day, data) {
+  submissionsMemoryCache.set(getSubmissionsCacheKey(classId, day), {
+    createdAt: Date.now(),
+    data,
+  });
+}
+
+function clearSubmissionsCacheForClass(classId) {
+  for (const key of submissionsMemoryCache.keys()) {
+    if (key.startsWith(`${classId}:`)) {
+      submissionsMemoryCache.delete(key);
+    }
+  }
+}
+
+function readDayFoldersMemoryCache(classId) {
+  const cached = dayFoldersMemoryCache.get(classId);
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > SUBMISSIONS_CACHE_TTL_MS) {
+    dayFoldersMemoryCache.delete(classId);
+    return null;
+  }
+  return cached.data;
+}
+
+function writeDayFoldersMemoryCache(classId, data) {
+  dayFoldersMemoryCache.set(classId, {
+    createdAt: Date.now(),
+    data,
+  });
+}
+
+async function getCachedDayFolders(classId, classConfig) {
+  const cached = readDayFoldersMemoryCache(classId);
+  if (cached) return cached;
+
+  const dayFolders = await getDayFolders(classConfig.folderId);
+  writeDayFoldersMemoryCache(classId, dayFolders);
+  return dayFolders;
+}
+
+function getClassConfig(classId) {
+  const config = CLASS_FOLDERS[classId];
+  if (!config) return null;
+  if (typeof config === 'string') {
+    return { folderId: config, layout: 'student-first' };
+  }
+  return config;
 }
 
 function sleep(ms) {
@@ -129,6 +203,10 @@ async function getStudentFolders(parentFolderId) {
   return res.data.files;
 }
 
+async function getChildFolders(parentFolderId) {
+  return getStudentFolders(parentFolderId);
+}
+
 /**
  * Finds a specific "Day" folder inside a student folder (fuzzy match)
  */
@@ -160,6 +238,101 @@ async function getAudioFiles(folderId) {
     fields: 'files(id, name, mimeType)',
   }));
   return res.data.files || [];
+}
+
+async function getDayFolders(rootFolderId) {
+  const folders = await getChildFolders(rootFolderId);
+  return folders
+    .map(folder => ({ ...folder, day: parseDayNumber(folder.name) }))
+    .filter(folder => Number.isInteger(folder.day));
+}
+
+async function listDriveFiles(query, fields) {
+  const files = [];
+  let pageToken;
+
+  do {
+    const res = await withDriveRetry(() => drive.files.list({
+      q: query,
+      fields: `nextPageToken, files(${fields})`,
+      pageSize: 1000,
+      pageToken,
+    }));
+
+    files.push(...(res.data.files || []));
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+
+  return files;
+}
+
+function matchesDayFolder(folderName, targetDay) {
+  const dayPattern = new RegExp(`(?:day|ngày|ngay)0*${targetDay}(?!\\d)`, 'i');
+  const name = String(folderName || '').replace(/\s+/g, '');
+  return dayPattern.test(name);
+}
+
+async function getDayFoldersForStudents(students, targetDay) {
+  if (!drive) throw new Error('Drive API not initialized');
+  if (!students.length) return new Map();
+
+  const studentIds = new Set(students.map(student => student.id));
+  const folders = await listDriveFiles(
+    "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+    'id, name, parents'
+  );
+  const dayFoldersByStudentId = new Map();
+  folders.forEach(folder => {
+    if (!matchesDayFolder(folder.name, targetDay)) return;
+    const studentId = (folder.parents || []).find(parentId => studentIds.has(parentId));
+    if (studentId && !dayFoldersByStudentId.has(studentId)) {
+      dayFoldersByStudentId.set(studentId, folder);
+    }
+  });
+
+  if (dayFoldersByStudentId.size === 0) {
+    const fallbackFolders = await Promise.all(students.map(async student => {
+      const folder = await findDayFolder(student.id, targetDay);
+      return folder ? [student.id, folder] : null;
+    }));
+
+    fallbackFolders.forEach(entry => {
+      if (entry) dayFoldersByStudentId.set(entry[0], entry[1]);
+    });
+  }
+
+  return dayFoldersByStudentId;
+}
+
+async function getAudioFilesForFolders(dayFolders) {
+  if (!drive) throw new Error('Drive API not initialized');
+  if (!dayFolders.length) return new Map();
+
+  const folderIds = dayFolders.map(folder => folder.id);
+  const folderIdSet = new Set(folderIds);
+  const files = await listDriveFiles(
+    "(mimeType contains 'audio/' or mimeType = 'application/octet-stream') and trashed = false",
+    'id, name, mimeType, parents'
+  );
+  const filesByFolderId = new Map(folderIds.map(folderId => [folderId, []]));
+  files.forEach(file => {
+    const folderId = (file.parents || []).find(parentId => folderIdSet.has(parentId));
+    if (folderId) filesByFolderId.get(folderId).push(file);
+  });
+
+  const hasAudioFiles = Array.from(filesByFolderId.values()).some(filesForFolder => filesForFolder.length > 0);
+  if (!hasAudioFiles) {
+    const fallbackFiles = await Promise.all(dayFolders.map(async folder => {
+      const folderFiles = await getAudioFiles(folder.id);
+      return [folder.id, folderFiles];
+    }));
+
+    fallbackFiles.forEach(([folderId, folderFiles]) => {
+      filesByFolderId.set(folderId, folderFiles);
+    });
+  }
+
+  return filesByFolderId;
 }
 
 // --- API ROUTES ---
@@ -204,13 +377,63 @@ async function scanDaysFromDrive(rootFolderId) {
   return normalizeDays(Array.from(daySetMap.keys()).map(day => ({ day }))) || [];
 }
 
+async function scanDaysForClass(classId, classConfig) {
+  if (classConfig.layout === 'day-first') {
+    return normalizeDays(await getCachedDayFolders(classId, classConfig)) || [];
+  }
+
+  return scanDaysFromDrive(classConfig.folderId);
+}
+
+async function getStudentFirstSubmissions(classConfig, day) {
+  const students = await getStudentFolders(classConfig.folderId);
+  const dayFoldersByStudentId = await getDayFoldersForStudents(students, day);
+  const filesByFolderId = await getAudioFilesForFolders([...dayFoldersByStudentId.values()]);
+
+  return students.map(student => {
+    const dayFolder = dayFoldersByStudentId.get(student.id);
+    const files = dayFolder ? (filesByFolderId.get(dayFolder.id) || []) : [];
+    return {
+      id: student.id,
+      name: student.name,
+      answers: toAudioAnswers(files)
+    };
+  });
+}
+
+async function getDayFirstSubmissions(classId, classConfig, day) {
+  const dayFolders = await getCachedDayFolders(classId, classConfig);
+  const dayFolder = dayFolders.find(folder => String(folder.day) === String(day));
+  if (!dayFolder) return [];
+
+  const students = await getChildFolders(dayFolder.id);
+  const filesByFolderId = await getAudioFilesForFolders(students);
+
+  return students.map(student => ({
+    id: student.id,
+    name: student.name,
+    answers: toAudioAnswers(filesByFolderId.get(student.id) || [])
+  }));
+}
+
+function toAudioAnswers(files) {
+  return files
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }))
+    .map(f => ({
+      q: f.name.split('.')[0],
+      name: f.name,
+      audioUrl: `/api/audio/${f.id}`,
+      status: 'pending'
+    }));
+}
+
 // Get all available days for a class — reads from file cache, scans Drive on miss
 app.get('/api/days', async (req, res) => {
   const { class: classId } = req.query;
   if (!classId) return res.status(400).json({ error: 'Class parameter required' });
 
-  const rootFolderId = CLASS_FOLDERS[classId];
-  if (!rootFolderId) return res.json([]);
+  const classConfig = getClassConfig(classId);
+  if (!classConfig) return res.json([]);
 
   // Return cached result immediately if available
   const cached = readCache(classId);
@@ -222,7 +445,7 @@ app.get('/api/days', async (req, res) => {
   // Cache miss — scan Drive
   console.log(`[cache] No cache for ${classId}, scanning Drive...`);
   try {
-    const days = await scanDaysFromDrive(rootFolderId);
+    const days = await scanDaysForClass(classId, classConfig);
     writeCache(classId, days);
     res.json(days);
   } catch (error) {
@@ -238,12 +461,14 @@ app.post('/api/cache/refresh', async (req, res) => {
 
   const results = {};
   for (const id of targets) {
-    const rootFolderId = CLASS_FOLDERS[id];
-    if (!rootFolderId) continue;
+    const classConfig = getClassConfig(id);
+    if (!classConfig) continue;
     try {
       console.log(`[cache] Force refreshing ${id}...`);
-      const days = await scanDaysFromDrive(rootFolderId);
+      dayFoldersMemoryCache.delete(id);
+      const days = await scanDaysForClass(id, classConfig);
       writeCache(id, days);
+      clearSubmissionsCacheForClass(id);
       results[id] = days.length;
     } catch (err) {
       results[id] = `error: ${err.message}`;
@@ -263,44 +488,27 @@ app.get('/api/submissions', async (req, res) => {
     return res.status(400).json({ error: 'Class and Day parameters are required' });
   }
 
-  const rootFolderId = CLASS_FOLDERS[classId];
-  if (!rootFolderId) {
+  const classConfig = getClassConfig(classId);
+  if (!classConfig) {
     console.warn(`No root folder configured for class: ${classId}`);
     return res.json([]);
   }
 
+  const cached = readSubmissionsCache(classId, day);
+  if (cached) {
+    console.log(`[cache] Serving submissions for ${classId} day ${day} from memory cache`);
+    return res.json(cached);
+  }
+
   try {
-    const students = await getStudentFolders(rootFolderId);
-    
-    // Process students in parallel
-    const results = await Promise.all(students.map(async (student) => {
-      try {
-        const dayFolder = await findDayFolder(student.id, day);
-        
-        let answers = [];
-        if (dayFolder) {
-          const files = await getAudioFiles(dayFolder.id);
-          answers = files
-            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }))
-            .map(f => ({
-              q: f.name.split('.')[0],
-              name: f.name,
-              audioUrl: `/api/audio/${f.id}`,
-              status: 'pending'
-            }));
-        }
+    const results = classConfig.layout === 'day-first'
+      ? await getDayFirstSubmissions(classId, classConfig, day)
+      : await getStudentFirstSubmissions(classConfig, day);
 
-        return {
-          id: student.id,
-          name: student.name,
-          answers: answers
-        };
-      } catch (err) {
-        console.error(`Error processing student ${student.name}:`, err);
-        return { id: student.id, name: student.name, answers: [] };
-      }
-    }));
+    const audioFileCount = results.reduce((total, student) => total + student.answers.length, 0);
+    console.log(`[submissions] ${classId} day ${day}: ${results.length} students, ${audioFileCount} audio files`);
 
+    writeSubmissionsCache(classId, day, results);
     res.json(results);
   } catch (error) {
     console.error('Drive API Error:', error);
