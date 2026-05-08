@@ -115,26 +115,21 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderSidebar() {
         let html = '';
         for (const [className, data] of Object.entries(CLASSES_DATA)) {
+            const iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-text-tertiary);"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>`;
+            
             html += `
                 <div class="class-group" data-class="${className}">
                     <div class="class-header" onclick="window.handleClassHeaderClick(event, '${className}')">
-                        <span class="class-title">
-                            <svg class="class-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                                <circle cx="9" cy="7" r="4"></circle>
-                                <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                            </svg>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            ${iconSvg}
                             <span>${className}</span>
-                        </span>
-                        <span class="class-header-meta">
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
                             <span class="class-count-badge">${data.days.length}</span>
-                            <button class="class-chevron-btn" type="button" aria-label="Toggle ${className} days" onclick="window.toggleClassExpansion(event, '${className}')">
-                                <svg class="class-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <polyline points="15 18 9 12 15 6"></polyline>
-                                </svg>
-                            </button>
-                        </span>
+                            <svg class="class-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
                     </div>
                     <div class="class-children">
                         ${getClassDays(className).map(day => `

@@ -268,8 +268,10 @@ body.dark-theme .sidebar-header {
   margin: 8px 8px 4px;
   border-radius: 9999px;
   cursor: pointer;
+  user-select: none;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--color-text-secondary);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
@@ -279,14 +281,14 @@ body.dark-theme .sidebar-header {
   overflow: hidden;
 }
 
-.class-header,
-.date-entry,
-.dropdown-item,
-.student-cell.clickable,
-.student-toggle-arrow,
-.student-name-text {
-  user-select: none;
-  -webkit-user-select: none;
+.class-header svg:first-child {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent) !important;
 }
 
 .class-header:hover {
@@ -306,6 +308,15 @@ body.dark-theme .class-header:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.class-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-tertiary);
+  transform: rotate(90deg); /* Collapsed: Right */
+  transition: transform var(--transition-smooth);
+  flex-shrink: 0;
+}
+
 .class-count-badge {
   display: inline-block;
   flex-shrink: 0;
@@ -322,60 +333,6 @@ body.dark-theme .class-header:hover {
   transition: all var(--transition-fast);
 }
 
-.class-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.class-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--color-accent);
-  flex-shrink: 0;
-}
-
-.class-header-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.class-chevron-btn {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 9999px;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
-
-.class-chevron-btn:hover,
-.class-chevron-btn:focus-visible {
-  color: var(--color-accent);
-  outline: none;
-}
-
-.class-chevron {
-  width: 16px;
-  height: 16px;
-  color: currentColor;
-  flex-shrink: 0;
-  transition: transform var(--transition-smooth);
-}
-
-.class-group.expanded .class-chevron {
-  transform: rotate(-90deg);
-}
-
 .class-header:hover .class-count-badge {
   background: var(--color-surface-hover);
   border-color: var(--color-accent);
@@ -385,6 +342,10 @@ body.dark-theme .class-header:hover {
 body.dark-theme .class-count-badge {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+.class-group.expanded .class-chevron {
+  transform: rotate(0deg); /* Expanded: Down */
 }
 
 .class-children {
