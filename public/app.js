@@ -211,7 +211,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadDaysForClass(className) {
         const classData = CLASSES_DATA[className];
-        if (!classData || classData.loaded) return; // already loaded this session
+        if (!classData) return [];
+        if (classData.loaded) return classData.days; // already loaded this session
 
         // Check browser localStorage cache first — avoids HTTP request on refresh
         const lsKey = `gradingDays_${className}`;
@@ -230,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (activeTabId === className) {
                     updateDayOptions(className, selectedDaysByClass[className]);
                 }
-                return; // done — no network call needed
+                return classData.days; // done — no network call needed
             } catch (e) {
                 localStorage.removeItem(lsKey); // corrupted, fall through to fetch
             }
@@ -248,8 +249,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (activeTabId === className) {
                 updateDayOptions(className, selectedDaysByClass[className]);
             }
+            return classData.days;
         } catch (err) {
             console.error(`Failed to load days for ${className}:`, err);
+            return [];
         }
     }
 
@@ -306,12 +309,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedDaysByClass = { ...savedPosition.selectedDaysByClass };
     const expandedStudentRows = new Set();
     let latestSubmissionsRequestId = 0;
+    let latestClassOpenRequestId = 0;
     let didRestoreScrollPosition = false;
 
     function getExpandedClasses() {
         return Array.from(document.querySelectorAll('.class-group.expanded'))
             .map(group => group.dataset.class)
             .filter(Boolean);
+    }
+
+    function getLatestDayValue(className) {
+        const [latestDay] = getClassDays(className);
+        return latestDay ? String(latestDay.day) : '';
     }
 
     function savePosition() {
@@ -455,6 +464,42 @@ document.addEventListener('DOMContentLoaded', () => {
         dayDropdown.innerHTML = '';
     }
 
+    function renderGradingSkeleton(rowCount = 6) {
+        const table = document.createElement('div');
+        table.className = 'grading-table skeleton-table';
+
+        const header = document.createElement('div');
+        header.className = 'grading-header';
+        const headerRow = document.createElement('div');
+        headerRow.className = 'grading-row';
+        headerRow.innerHTML = `
+            <div class="grading-cell header-cell">${HEADER_ICONS.student} Student</div>
+            <div class="grading-cell header-cell">${HEADER_ICONS.name} Name</div>
+            <div class="grading-cell header-cell">${HEADER_ICONS.audio} Audio</div>
+            <div class="grading-cell header-cell">${HEADER_ICONS.comments} Comments</div>
+        `;
+        header.appendChild(headerRow);
+        table.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'grading-body';
+        for (let i = 0; i < rowCount; i++) {
+            const row = document.createElement('div');
+            row.className = 'grading-row';
+            row.innerHTML = `
+                <div class="grading-cell student-cell"><span class="skeleton-dot"></span><span class="skeleton-line skeleton-student"></span></div>
+                <div class="grading-cell name-cell"><span class="skeleton-line skeleton-name"></span></div>
+                <div class="grading-cell audio-cell"><span class="skeleton-play"></span><span class="skeleton-line skeleton-audio"></span><span class="skeleton-line skeleton-time"></span></div>
+                <div class="grading-cell comment-cell"><span class="skeleton-line skeleton-comment"></span></div>
+            `;
+            body.appendChild(row);
+        }
+        table.appendChild(body);
+
+        submissionsList.innerHTML = '';
+        submissionsList.appendChild(table);
+    }
+
     function activateTab(tabId) {
         if (activeTabId === tabId) return;
         activeTabId = tabId;
@@ -471,26 +516,41 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function openClassTab(className, day) {
+        const requestId = ++latestClassOpenRequestId;
         if (!openTabs.some(tab => tab.id === className)) {
             openTabs.push({ id: className, label: className });
         }
 
         activeTabId = className;
-        const selectedDay = day ? String(day) : selectedDaysByClass[className];
+        const selectedDay = day ? String(day) : getLatestDayValue(className);
         updateDayOptions(className, selectedDay);
         renderTabs();
         updateSidebarSelection(className, selectedDay);
 
         // Kick off dynamic day loading from Drive (no-op if already loaded)
-        loadDaysForClass(className);
+        const daysPromise = loadDaysForClass(className);
 
         if (day) {
             selectDay(day);
         } else if (selectedDay) {
             selectDay(selectedDay);
         } else {
-            showEmptyWorkspace();
+            dayBadge.textContent = 'Loading...';
+            renderGradingSkeleton();
+            loadingIndicator.classList.remove('hidden');
             savePosition();
+            daysPromise.then(() => {
+                if (requestId !== latestClassOpenRequestId || activeTabId !== className) return;
+                const latestDay = getLatestDayValue(className);
+                updateDayOptions(className, latestDay);
+                updateSidebarSelection(className, latestDay);
+                if (latestDay) {
+                    selectDay(latestDay);
+                } else {
+                    showEmptyWorkspace();
+                    savePosition();
+                }
+            });
         }
     }
 
@@ -600,7 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             // No cache: show loader and clear list
             loadingIndicator.classList.remove('hidden');
-            submissionsList.innerHTML = '';
+            renderGradingSkeleton();
         }
 
         // --- 2. Fetch Fresh Data in Background ---
@@ -804,6 +864,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const knob = audioCell.querySelector('.scrubber-knob');
                     const timeDisplay = audioCell.querySelector('.time-display');
 
+                    const updateRemainingTime = () => {
+                        if (!Number.isFinite(audio.duration)) return;
+                        const remaining = Math.max(0, audio.duration - audio.currentTime);
+                        timeDisplay.textContent = formatTime(remaining);
+                    };
+
                     const toggleAudio = () => {
                         if (audio.paused) {
                             document.querySelectorAll('audio').forEach(a => a.pause());
@@ -824,7 +890,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
 
                     audio.addEventListener('loadedmetadata', () => {
-                        timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`;
+                        timeDisplay.textContent = formatTime(audio.duration);
                     });
 
                     audio.addEventListener('timeupdate', () => {
@@ -832,13 +898,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         const pct = (audio.currentTime / audio.duration) * 100;
                         progress.style.width = `${pct}%`;
                         knob.style.left = `${pct}%`;
-                        timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+                        updateRemainingTime();
                     });
 
                     audio.addEventListener('ended', () => {
                         playBtn.textContent = '▶';
                         progress.style.width = '0%';
                         knob.style.left = '0%';
+                        timeDisplay.textContent = formatTime(audio.duration);
                     });
                 }
                 row.appendChild(audioCell);

@@ -54,7 +54,7 @@
   --ui-toggle-size: 38px;
 
   /* Typography */
-  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
 
   /* Spacing */
   --space-xs: 4px;
@@ -959,6 +959,93 @@ body.dark-theme .student-block.missing-homework > .grading-row > .student-cell {
         box-shadow var(--transition-fast);
 }
 
+/* Skeleton Loading */
+.skeleton-table {
+    pointer-events: none;
+}
+
+.skeleton-table .grading-cell {
+    overflow: hidden;
+}
+
+.skeleton-line,
+.skeleton-dot,
+.skeleton-play {
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+    overflow: hidden;
+    background: rgba(110, 110, 115, 0.16);
+}
+
+body.dark-theme .skeleton-line,
+body.dark-theme .skeleton-dot,
+body.dark-theme .skeleton-play {
+    background: rgba(255, 255, 255, 0.10);
+}
+
+.skeleton-line::after,
+.skeleton-dot::after,
+.skeleton-play::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+    animation: skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+body.dark-theme .skeleton-line::after,
+body.dark-theme .skeleton-dot::after,
+body.dark-theme .skeleton-play::after {
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+}
+
+.skeleton-line {
+    height: 10px;
+    border-radius: 999px;
+}
+
+.skeleton-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+}
+
+.skeleton-play {
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+}
+
+.skeleton-student {
+    width: min(68%, 180px);
+}
+
+.skeleton-name {
+    width: min(74%, 120px);
+}
+
+.skeleton-audio {
+    flex: 1;
+    min-width: 120px;
+    height: 3px;
+}
+
+.skeleton-time {
+    width: 44px;
+}
+
+.skeleton-comment {
+    width: min(82%, 260px);
+}
+
+@keyframes skeleton-shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
 /* Student Cell */
 .student-cell {
     gap: 8px;
@@ -1011,7 +1098,7 @@ body.dark-theme .student-block.missing-homework > .grading-row > .student-cell {
     font-weight: 600;
     font-size: 12.5px;
     color: var(--color-text-secondary);
-    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
     letter-spacing: 0.2px;
     white-space: nowrap;
     overflow: hidden;
@@ -1104,10 +1191,10 @@ body.dark-theme .scrubber-knob {
 .time-display {
     font-size: 11px;
     font-weight: 600;
-    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
     white-space: nowrap;
     color: var(--color-text-secondary);
-    min-width: 85px;
+    min-width: 44px;
     text-align: right;
 }
 
