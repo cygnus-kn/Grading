@@ -652,13 +652,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function expandBlock(block, arrow) {
-        const container = block.querySelector('.collapsible-rows-container');
-        if (!container) return;
-
         block.classList.add('expanded');
         if (block.dataset.expansionKey) {
             expandedStudentRows.add(block.dataset.expansionKey);
         }
+
+        const container = block.querySelector('.collapsible-rows-container');
+        if (!container) return;
+
         container.dataset.transitioning = 'true';
         container.style.height = '0px';
         container.classList.add('is-open');
