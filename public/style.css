@@ -373,7 +373,7 @@ body.dark-theme .class-header:hover {
 }
 
 .class-group.expanded .class-chevron {
-  transform: rotate(90deg);
+  transform: rotate(-90deg);
 }
 
 .class-header:hover .class-count-badge {
@@ -788,7 +788,7 @@ main::-webkit-scrollbar-thumb:hover {
    ============================ */
 .grading-table {
     --gt-student-col: 200px;
-    --gt-name-col: 130px;
+    --gt-name-col: 150px;
     --gt-columns: var(--gt-student-col) var(--gt-name-col) minmax(150px, 1fr) minmax(220px, 1fr);
     --gt-gap: 6px;
     --cell-bg: var(--color-bg);
@@ -836,7 +836,15 @@ body.dark-theme .grading-table {
     min-height: var(--cell-height);
     display: flex;
     align-items: center;
+    gap: 8px;
     position: relative;
+}
+
+.header-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--color-accent);
+    opacity: 0.8;
 }
 
 body.dark-theme .grading-header .grading-cell {
@@ -989,6 +997,10 @@ body.dark-theme .student-block.missing-homework > .grading-row > .student-cell {
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     letter-spacing: 0.2px;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+    max-width: 570px;
 }
 
 /* Audio Cell */
@@ -1078,7 +1090,7 @@ body.dark-theme .scrubber-knob {
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     white-space: nowrap;
     color: var(--color-text-secondary);
-    min-width: 44px;
+    min-width: 85px;
     text-align: right;
 }
 
