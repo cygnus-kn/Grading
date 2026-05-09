@@ -11,15 +11,17 @@ function normalizeDays(days) {
 }
 
 function parseDayNumber(folderName) {
-  const cleaned = String(folderName || '').toLowerCase().replace(/\s+/g, '');
-  const match = cleaned.match(/(?:day|d|ngày|ngay)0*(\d+)/);
+  const rawName = String(folderName || '').trim();
+  const standaloneNumber = rawName.match(/^0*(\d+)$/);
+  if (standaloneNumber) return parseInt(standaloneNumber[1], 10);
+
+  const cleaned = rawName.toLowerCase().replace(/\s+/g, '');
+  const match = cleaned.match(/(?:homework|hw|day|d|ngày|ngay)0*(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
 
 function matchesDayFolder(folderName, targetDay) {
-  const dayPattern = new RegExp(`(?:day|ngày|ngay)0*${targetDay}(?!\\d)`, 'i');
-  const name = String(folderName || '').replace(/\s+/g, '');
-  return dayPattern.test(name);
+  return parseDayNumber(folderName) === Number(targetDay);
 }
 
 function toQuestionLabel(fileName) {

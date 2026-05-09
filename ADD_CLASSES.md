@@ -50,6 +50,11 @@ Supported day names include:
 | `day1` | Day 1 |
 | `Ngày 1` | Day 1 |
 | `ngay1` | Day 1 |
+| `D1` | Day 1 |
+| `HW1` | Day 1 |
+| `Homework 1` | Day 1 |
+| `1` | Day 1 |
+| `Day 1_23.03.26` | Day 1 |
 
 ---
 
