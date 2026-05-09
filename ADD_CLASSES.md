@@ -31,6 +31,16 @@ Expected `student-first` structure:
       audio files
 ```
 
+Nested folders inside a day folder are also supported:
+
+```text
+<Class Root Folder>
+  <Student Folder>
+    <Day Folder>
+      <Nested Folder>
+        audio files
+```
+
 Supported day names include:
 
 | Folder name | Matched as |

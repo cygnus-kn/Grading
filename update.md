@@ -48,7 +48,7 @@ Responsibilities:
 - `src/config/googleDrive.js`: Google Drive auth using `GOOGLE_CREDENTIALS` or local `credentials.json`.
 - `src/config/supabase.js`: Supabase client using `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 - `src/routes/apiRoutes.js`: API endpoints.
-- `src/services/driveService.js`: Drive folder/file scanning and audio streaming.
+- `src/services/driveService.js`: Drive folder/file scanning, recursive day-folder audio discovery, and audio streaming.
 - `src/services/supabaseMetadataService.js`: Supabase reads and Drive-to-Supabase sync.
 - `src/services/cacheService.js`: local fallback file/memory cache.
 - `src/services/submissionsService.js`: fallback Drive submission assembly.
@@ -76,6 +76,15 @@ Class reload button -> Express API -> scan Google Drive -> upsert Supabase metad
 ```
 
 This avoids scanning Drive on every day click. Drive is now used only for sync and audio streaming.
+
+Audio discovery during sync searches recursively inside each day folder, so this layout is supported:
+
+```text
+Student Folder
+  Day 1
+    Nested Folder
+      audio files
+```
 
 ---
 
@@ -118,12 +127,17 @@ Synced metadata currently contains:
 - 13 students
 - 17 days
 - 120 submissions
-- 635 audio file metadata rows
+- 762 audio file metadata rows
 
 Verified Day 17:
 
 - 13 students
 - 65 audio files
+
+Verified Day 1 after recursive audio discovery:
+
+- 13 students
+- audio files inside nested folders under `Day 1` are included
 
 ---
 
@@ -197,6 +211,7 @@ If Vercel returns `days: []` from `/api/classes`, redeploy after checking Supaba
 - The Supabase sync currently supports the `student-first` layout.
 - There are no automated tests yet.
 - Sync can still be slow because it scans Drive, but normal day clicks are fast because they read Supabase.
+- Recursive audio discovery makes sync heavier, but it handles student-created nested folders inside day folders.
 
 ---
 

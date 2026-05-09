@@ -69,6 +69,35 @@ async function getAudioFiles(folderId) {
   return res.data.files || [];
 }
 
+async function getAudioFilesRecursive(rootFolderId) {
+  const audioFilesById = new Map();
+  const folderQueue = [rootFolderId];
+  const visitedFolderIds = new Set();
+
+  while (folderQueue.length > 0) {
+    const folderId = folderQueue.shift();
+    if (!folderId || visitedFolderIds.has(folderId)) continue;
+    visitedFolderIds.add(folderId);
+
+    const [audioFiles, childFolders] = await Promise.all([
+      getAudioFiles(folderId),
+      getChildFolders(folderId),
+    ]);
+
+    audioFiles.forEach(file => {
+      audioFilesById.set(file.id, file);
+    });
+
+    childFolders.forEach(folder => {
+      if (!visitedFolderIds.has(folder.id)) {
+        folderQueue.push(folder.id);
+      }
+    });
+  }
+
+  return [...audioFilesById.values()];
+}
+
 async function getDayFolders(rootFolderId) {
   const folders = await getChildFolders(rootFolderId);
   return folders
@@ -133,30 +162,15 @@ async function getAudioFilesForFolders(dayFolders) {
   assertDrive();
   if (!dayFolders.length) return new Map();
 
-  const folderIds = dayFolders.map(folder => folder.id);
-  const folderIdSet = new Set(folderIds);
-  const files = await listDriveFiles(
-    "(mimeType contains 'audio/' or mimeType = 'application/octet-stream') and trashed = false",
-    'id, name, mimeType, parents'
-  );
-  const filesByFolderId = new Map(folderIds.map(folderId => [folderId, []]));
+  const filesByFolderId = new Map(dayFolders.map(folder => [folder.id, []]));
+  const nestedFiles = await Promise.all(dayFolders.map(async folder => [
+    folder.id,
+    await getAudioFilesRecursive(folder.id),
+  ]));
 
-  files.forEach(file => {
-    const folderId = (file.parents || []).find(parentId => folderIdSet.has(parentId));
-    if (folderId) filesByFolderId.get(folderId).push(file);
+  nestedFiles.forEach(([folderId, files]) => {
+    filesByFolderId.set(folderId, files);
   });
-
-  const hasAudioFiles = Array.from(filesByFolderId.values()).some(filesForFolder => filesForFolder.length > 0);
-  if (!hasAudioFiles) {
-    const fallbackFiles = await Promise.all(dayFolders.map(async folder => {
-      const folderFiles = await getAudioFiles(folder.id);
-      return [folder.id, folderFiles];
-    }));
-
-    fallbackFiles.forEach(([folderId, folderFiles]) => {
-      filesByFolderId.set(folderId, folderFiles);
-    });
-  }
 
   return filesByFolderId;
 }
