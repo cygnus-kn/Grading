@@ -1,158 +1,209 @@
 # Grading App Update
 
-Last updated: May 7, 2026 (Evening)
+Last updated: May 9, 2026
 
 ## Current App Summary
 
-This project is a small Express app serving a static grading workspace from `public/`.
+This project is an Express + static frontend grading workspace.
 
-- `server.js` serves the frontend and exposes API routes now backed by the **Google Drive API**.
-- `public/index.html` defines the sidebar, workspace header, tab host, day selector, and grading area.
-- `public/app.js` owns sidebar behavior, tab state, day selection, audio playback, feedback submission, and grading table rendering.
-- `public/style.css` owns the full visual system.
+- `server.js` is now a small Vercel/local entrypoint.
+- Backend logic lives in `src/`.
+- `public/index.html`, `public/app.js`, and `public/style.css` serve the grading UI.
+- Supabase Postgres stores Google Drive metadata so day/submission pages load quickly.
+- Google Drive still stores the actual audio files.
+- `/api/audio/:fileId` streams audio from Google Drive through the server.
 
-Google Drive is now **connected for class S001**. Audio files stream through the Express server via a proxy route. Google Sheets feedback writing is still mocked.
+Current active class:
+
+- `S136`
+- Drive folder: `1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r`
+- Layout: `student-first`
 
 ---
 
-## Changes Made So Far
+## Backend Layout
 
-### Workspace Layout
+```text
+server.js
+src/
+  app.js
+  config/
+    classFolders.js
+    googleDrive.js
+    supabase.js
+  routes/
+    apiRoutes.js
+  services/
+    cacheService.js
+    driveService.js
+    submissionsService.js
+    supabaseMetadataService.js
+  utils/
+    days.js
+```
 
-- Renamed the right-side area conceptually as the workspace.
-- Made the workspace fill the browser height with the same vertical geometry as the sidebar.
-- Synchronized the sidebar and workspace expand/collapse animation speed.
-- Disabled workspace animation while the sidebar is being resized.
-- Locked the outer page scroll so the workspace no longer slides vertically.
-- Kept only the internal `main` content area scrollable.
-- Moved the workspace scrollbar to the left edge of the main content area.
-- Keeps the workspace header visible even when no class/day is selected.
-- Keeps the main workspace content blank until the user selects a specific day.
-- Moved the workspace divider out of the header border and into a separate container overlay so tabs are not clipped by the divider.
+Responsibilities:
 
-### Theme And Background
+- `src/config/classFolders.js`: fallback class config for Drive folder IDs.
+- `src/config/googleDrive.js`: Google Drive auth using `GOOGLE_CREDENTIALS` or local `credentials.json`.
+- `src/config/supabase.js`: Supabase client using `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+- `src/routes/apiRoutes.js`: API endpoints.
+- `src/services/driveService.js`: Drive folder/file scanning and audio streaming.
+- `src/services/supabaseMetadataService.js`: Supabase reads and Drive-to-Supabase sync.
+- `src/services/cacheService.js`: local fallback file/memory cache.
+- `src/services/submissionsService.js`: fallback Drive submission assembly.
 
-- Set dark mode page background to dark navy: `#071426`.
-- Set light mode page background to warm ivory: `#f4f1ec`.
-- Disabled the decorative background blobs so the background is clean and solid.
-- Updated the floating sidebar toggle button to use theme-aware light/dark colors.
-- Removed the sidebar aura/glow shadow so the sidebar sits flatter against the page.
+---
 
-### Sidebar
+## Current Data Flow
 
-- Matched the class pill size/style more closely to the Homework project.
-- Added the class/people icon to each class pill.
-- Added a count badge and chevron group on the right side of each class pill.
-- Class pill click now opens/activates the class tab only.
-- Day list expansion/collapse is controlled only by clicking the chevron.
-- Added a circular chevron hitbox with hover/focus background highlighting.
-- Collapsed chevron points down. Expanded chevron rotates to point left.
-- Removed blue active highlighting from the class pill itself.
-- Kept day/date entry active highlighting.
-- Reverted class pill height to the original compact sizing.
+Normal day/submission loading:
 
-### Workspace Tabs
+```text
+Browser -> Express API -> Supabase metadata -> render table
+```
 
-- Replaced hardcoded tabs with JS-rendered class tabs.
-- Tabs can be opened by clicking sidebar classes.
-- Tabs can be closed with a close button.
-- Closing the active tab selects the nearest remaining tab.
-- Closing all tabs returns the workspace to a blank state.
-- Changed tabs to Firefox-style rounded shape, then reshaped into pill-like class tabs.
-- Moved class tabs into the workspace header.
-- Fixed tab clipping by allowing the tabs row to overflow visibly.
-- Tightened tab shadows so they do not collide visually with the workspace divider.
+Audio playback:
 
-### Date Selector
+```text
+Browser -> /api/audio/:fileId -> Google Drive stream
+```
 
-- Replaced the visible native select with a date badge dropdown pattern.
-- Kept a hidden native select as the internal state holder.
-- Date badge sits at the top-left of the workspace header.
-- Dropdown items are rendered from the active class's available days.
-- Sidebar dates and the date selector now use `[Day 01] DD/MM` format.
-- Class clicks no longer auto-load Day 1; the workspace waits until the user picks a day.
-- Selected days are remembered per class.
+Refresh/sync:
 
-### State Persistence
+```text
+Class reload button -> Express API -> scan Google Drive -> upsert Supabase metadata
+```
 
-- Restores open class tabs, active class tab, selected day per class, expanded sidebar groups, main workspace scroll position, and sidebar width after reload.
-- Closing a class tab clears that class's cached day selection.
+This avoids scanning Drive on every day click. Drive is now used only for sync and audio streaming.
 
-### Grading Table
+---
 
-- Replaced the old list-based submission view with a compact **4-column CSS Grid table** (Student, Name, Audio, Comments).
-- Each cell is a distinct **curved rectangle** with defined borders, styled for both light and dark themes.
-- Sticky column header stays visible while scrolling.
-- **Student column** shows the student's name with a minimal SVG chevron icon.
-- **Resizable Columns**: The first three columns can be resized by dragging the handles between headers. Column widths are persisted in localStorage.
-- Clicking the chevron expands/collapses all extra audio rows for that student.
-- Students with **no homework** for the selected day show their name row but leave Name, Audio, and Comments columns blank.
-- Every student (including single-audio) has the chevron for visual consistency.
+## Environment Variables
 
-### Expand / Collapse Animation
+Local `.env` and Vercel must define:
 
-- Removed `display: none` toggling (which cannot animate).
-- Extra rows are wrapped in a `.collapsible-rows-container` div.
-- **Expand**: rows cascade in top-to-bottom with 45 ms stagger at 160 ms duration (`cubic-bezier(0.2, 0, 0, 1)`).
-- **Collapse**: rows disappear bottom-to-top with 30 ms stagger at 120 ms duration (`cubic-bezier(0.4, 0, 1, 1)`). Container hides only after the last row finishes.
-- Uses the **Web Animations API** for precise per-row control.
-- Sub-rows use `grid-column-start: 2` on the name cell so no blank student cell box appears.
+```text
+SUPABASE_URL=https://yaqcrnpbkildloxanrql.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service_role key>
+GOOGLE_CREDENTIALS=<full service-account JSON, Vercel only>
+```
 
-### Audio Player (Compact)
+Local development can use `credentials.json` instead of `GOOGLE_CREDENTIALS`.
 
-- Each audio row has a compact play/pause button, scrubber track, and time display.
-- Playing a new track pauses all other active players.
-- Scrubber progress and knob update live on `timeupdate`.
-- Player resets on `ended`.
+Do not commit:
 
-### Google Drive Integration
+- `.env`
+- `credentials.json`
+- `cache/`
 
-- Installed `googleapis` npm package.
-- Added `credentials.json` (Service Account key) to the project root.
-- `server.js` now authenticates with Google Drive using the Service Account.
-- **`CLASS_FOLDERS` map** links class IDs to root Google Drive folder IDs (`S001` → `1d_JaEf8uEJgLaAlahXkku_HXX9baO7Ss`).
-- **Folder structure**: Root Folder → Student Folder → Day Folder → Audio Files.
-- **Fuzzy day matching**: Matches "Day 16", "Day016", "D16" etc. so diverse student naming is handled automatically.
-- **`/api/audio/:fileId`** proxy route streams audio directly from Drive to the browser so the players work without exposing Drive credentials.
-- Students with missing Day folders return `answers: []` and render as blank rows.
-- Data is fetched **real-time** on every day selection — no caching or sync needed.
-- Added **Day 16** to S001 in the frontend to reflect the actual Drive structure.
+`.env.example` is safe and should keep placeholders only.
 
-### Repository
+---
 
-- Added this `update.md` project log.
-- Pushed the current UI work to GitHub on `main`.
-- Latest pushed commit: `9edaa1b` (`Refine grading workspace UI`).
+## Supabase
+
+The schema is recorded in `supabase-schema.sql`.
+
+Tables:
+
+- `classes`
+- `students`
+- `days`
+- `submissions`
+- `audio_files`
+
+Synced metadata currently contains:
+
+- 13 students
+- 17 days
+- 120 submissions
+- 635 audio file metadata rows
+
+Verified Day 17:
+
+- 13 students
+- 65 audio files
+
+---
+
+## API Routes
+
+- `GET /api/classes`
+  - Reads Supabase classes and their available days.
+  - Falls back to local Drive config/cache if Supabase fails.
+
+- `GET /api/days?class=S136`
+  - Reads day metadata from Supabase.
+  - Falls back to Drive scan if Supabase fails.
+
+- `GET /api/submissions?class=S136&day=17`
+  - Reads students/submissions/audio metadata from Supabase.
+  - Falls back to Drive scan if Supabase fails.
+
+- `POST /api/cache/refresh`
+  - With Supabase configured, syncs Drive metadata into Supabase.
+  - Kept under the old route name so the existing frontend reload button still works.
+
+- `POST /api/sync/class`
+  - Explicit sync endpoint.
+  - Body: `{ "class": "S136" }`
+
+- `GET /api/audio/:fileId`
+  - Streams actual audio from Google Drive.
+
+- `POST /api/feedback`
+  - Still mocked.
+
+---
+
+## Frontend Notes
+
+- `public/app.js` now accepts classes returned by `/api/classes`, so new Supabase-backed classes can appear without hardcoding every class in the initial object.
+- Student sorting happens on the frontend before table rendering using Vietnamese collation.
+- Browser localStorage still caches day/submission responses for quick revisits.
+- The class reload button clears browser day/submission cache for that class after sync.
+- A browser-tab SVG favicon lives at `public/favicon.svg`.
+
+---
+
+## Deployment Notes
+
+Production URL:
+
+```text
+https://grading-self.vercel.app/
+```
+
+After Vercel env vars were added and redeployed:
+
+- `/api/classes` returns `S136` with days `1-17`.
+- `/api/submissions?class=S136&day=17` returns 13 students and 65 audio files.
+
+Vercel must have:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_CREDENTIALS`
+
+If Vercel returns `days: []` from `/api/classes`, redeploy after checking Supabase env vars.
 
 ---
 
 ## Known Current Limitations
 
-- **S002 and S003** are not yet connected to Google Drive (they have no root folder ID in `CLASS_FOLDERS`).
-- Google Sheets feedback writing is still mocked in `/api/feedback`.
-- Class/day data in the sidebar is still hardcoded in `public/app.js`.
-- Student day folder naming is diverse — fuzzy matching covers common patterns but edge cases may exist.
-- Audio streaming does not support byte-range requests, so scrubbing to an unloaded position may not work yet.
-- `credentials.json` is not in `.gitignore` — **must be added before pushing to GitHub**.
-- The app has no automated tests yet.
+- Feedback writing is still mocked in `/api/feedback`.
+- Audio streaming does not implement byte-range forwarding yet, so seeking into unloaded audio may be limited.
+- The Supabase sync currently supports the `student-first` layout.
+- There are no automated tests yet.
+- Sync can still be slow because it scans Drive, but normal day clicks are fast because they read Supabase.
 
 ---
 
 ## Suggested Next Steps
 
-1. **Add `credentials.json` to `.gitignore`** immediately to avoid leaking the Service Account key.
-
-2. **Connect S002 and S003** to their own Google Drive root folders once the folder IDs are known.
-
-3. **Pull sidebar class/day data from the backend** instead of hardcoding it in `app.js`.
-
-4. **Improve audio scrubbing** by adding byte-range proxy support (`Range` header forwarding).
-
-5. **Improve day folder fuzzy matching** by collecting any unmatched folder names and logging them for review.
-
-6. **Implement real feedback saving** via the Google Sheets API in `/api/feedback`.
-   - Schema: class, day, student name, question, comment, timestamp, grader.
-
-7. **Add a loading/error state** for when the Drive API takes too long or returns an error.
-
-8. **Add basic backend tests** for the `/api/submissions` route and the audio proxy.
+1. Implement real feedback saving in Supabase or Google Sheets.
+2. Add byte-range support to `/api/audio/:fileId`.
+3. Add sync status and `last_synced_at` display in the UI.
+4. Add a small admin-only sync endpoint guard before adding more users.
+5. Add backend tests for Supabase reads, Drive fallback, and sync logic.

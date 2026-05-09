@@ -1,149 +1,203 @@
 # How to Add a New Class
 
-This document is intended for future developers or AI assistants. Follow every step in order. Missing a step will cause the class to appear in the sidebar but show no data, or not appear at all.
+This app now uses Supabase Postgres as the metadata cache. Google Drive still stores the actual audio files.
+
+Adding a class means:
+
+1. Give the Google service account access to the Drive folder.
+2. Add the class to Supabase.
+3. Add a fallback entry in the code.
+4. Run a sync so Supabase has students/days/audio metadata.
 
 ---
 
 ## Prerequisites
 
-Before starting, you need:
-1. The **Class ID** (e.g., `S004`). This is the label shown in the sidebar and tabs.
-2. The **Google Drive Folder ID** for that class. This is the long string in the folder's URL:
-   `https://drive.google.com/drive/folders/<FOLDER_ID_IS_HERE>`
-3. The Service Account email (found in `credentials.json` under `"client_email"`) must be added as a **Viewer** on that Google Drive folder. Without this, the Drive API will return a permission error.
+You need:
 
----
+1. Class ID, for example `S137`.
+2. Google Drive root folder ID.
+3. Folder layout. Current supported sync layout is `student-first`.
+4. Service Account email from `credentials.json` under `client_email`.
 
-## Step 1 — Register the Drive folder in `server.js`
+The Drive folder must be shared with the service account as **Viewer**.
 
-Open `server.js` and find the `CLASS_FOLDERS` object (around line 24):
+Expected `student-first` structure:
 
-```js
-const CLASS_FOLDERS = {
-  'S001': '1d_JaEf8uEJgLaAlahXkku_HXX9baO7Ss',
-  // Add other IDs here when available
-};
+```text
+<Class Root Folder>
+  <Student Folder>
+    <Day Folder>
+      audio files
 ```
 
-Add the new class:
-
-```js
-const CLASS_FOLDERS = {
-  'S001': '1d_JaEf8uEJgLaAlahXkku_HXX9baO7Ss',
-  'S004': '<NEW_FOLDER_ID>',  // ← add this line
-};
-```
-
----
-
-## Step 2 — Register the class in `public/app.js`
-
-Open `public/app.js` and find the `CLASSES_DATA` object at the very top of the file:
-
-```js
-const CLASSES_DATA = {
-    'S001': { days: [], loaded: false },
-    'S002': { days: [], loaded: false },
-    'S003': { days: [], loaded: false }
-};
-```
-
-Add the new class:
-
-```js
-const CLASSES_DATA = {
-    'S001': { days: [], loaded: false },
-    'S002': { days: [], loaded: false },
-    'S003': { days: [], loaded: false },
-    'S004': { days: [], loaded: false },  // ← add this line
-};
-```
-
-> [!IMPORTANT]
-> The key here (e.g., `'S004'`) must exactly match the key used in `CLASS_FOLDERS` in `server.js`. They are case-sensitive.
-
----
-
-## Step 3 — Restart the server
-
-The server must be restarted for the `CLASS_FOLDERS` change to take effect:
-
-```bash
-pkill -f "node server.js"
-node server.js &
-```
-
----
-
-## Step 4 — Verify
-
-1. Open the app in your browser and **hard refresh** (`Cmd+Shift+R`).
-2. The new class (e.g., `S004`) should now appear in the sidebar.
-3. Click it to open a tab. The server will call `/api/days?class=S004`, scan the Drive folder, and populate the day list in the sidebar.
-4. The result is cached in `cache/days-S004.json` — subsequent loads are instant.
-
----
-
-## How Days Are Discovered (No Manual Entry Needed)
-
-Day folders are **discovered automatically** from the Drive folder structure. The server scans each student's subfolder for folders whose names contain a day number. Supported naming patterns include:
+Supported day names include:
 
 | Folder name | Matched as |
 |------------|------------|
-| `Day 1`    | Day 1      |
-| `Day01`    | Day 1      |
-| `day1`     | Day 1      |
-| `Ngày 1`   | Day 1      |
-| `ngay1`    | Day 1      |
-
-> [!WARNING]
-> Ambiguous names like `Day 1` vs `Day 16` are handled correctly — the match requires the day number to not be followed by another digit. However, folder names that contain no recognizable pattern (e.g., just a date like `15/04`) will be ignored. Students should name their day folders consistently.
+| `Day 1` | Day 1 |
+| `Day01` | Day 1 |
+| `day1` | Day 1 |
+| `Ngày 1` | Day 1 |
+| `ngay1` | Day 1 |
 
 ---
 
-## How to Refresh the Day Cache
+## Step 1 - Add The Class To Supabase
 
-If a new student or day folder is added to Drive after the initial scan, the cache will be stale. To force a re-scan:
+Open Supabase SQL Editor and run:
 
-**Option A — Via API (recommended):**
+```sql
+insert into classes (id, drive_folder_id, layout)
+values ('S137', '<NEW_FOLDER_ID>', 'student-first')
+on conflict (id) do update set
+  drive_folder_id = excluded.drive_folder_id,
+  layout = excluded.layout;
+```
+
+Replace:
+
+- `S137` with the real class ID.
+- `<NEW_FOLDER_ID>` with the Google Drive folder ID.
+
+---
+
+## Step 2 - Add Fallback Config In Code
+
+Open `src/config/classFolders.js`.
+
+Add the class:
+
+```js
+const CLASS_FOLDERS = {
+  S136: {
+    folderId: '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r',
+    layout: 'student-first',
+  },
+  S137: {
+    folderId: '<NEW_FOLDER_ID>',
+    layout: 'student-first',
+  },
+};
+```
+
+This fallback is useful if Supabase is unavailable and for local safety.
+
+---
+
+## Step 3 - Restart Locally
+
+```bash
+node server.js
+```
+
+If another server is already running, stop it first.
+
+---
+
+## Step 4 - Sync Drive Metadata Into Supabase
+
+Run:
+
+```bash
+curl -X POST http://localhost:3001/api/sync/class \
+  -H "Content-Type: application/json" \
+  -d '{"class":"S137"}'
+```
+
+Expected response shape:
+
+```json
+{
+  "success": true,
+  "class": "S137",
+  "result": {
+    "students": 13,
+    "days": 17,
+    "submissions": 120,
+    "audioFiles": 635
+  }
+}
+```
+
+Counts will vary by class.
+
+---
+
+## Step 5 - Verify
+
+Check days:
+
+```bash
+curl "http://localhost:3001/api/days?class=S137"
+```
+
+Check submissions:
+
+```bash
+curl "http://localhost:3001/api/submissions?class=S137&day=1"
+```
+
+Open the app and hard refresh.
+
+The frontend reads `/api/classes`, so a class inserted into Supabase should appear in the sidebar after reload.
+
+---
+
+## Step 6 - Deploy
+
+Commit and push:
+
+```bash
+git add src/config/classFolders.js
+git commit -m "Add S137 class"
+git push
+```
+
+Vercel must already have:
+
+```text
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+GOOGLE_CREDENTIALS
+```
+
+After deploy, verify:
+
+```text
+https://grading-self.vercel.app/api/classes
+https://grading-self.vercel.app/api/days?class=S137
+https://grading-self.vercel.app/api/submissions?class=S137&day=1
+```
+
+---
+
+## Refreshing A Class Later
+
+When new students, days, or audio files are added to Drive, click the reload button on the class pill.
+
+With Supabase configured, that button:
+
+1. Scans Google Drive.
+2. Upserts metadata into Supabase.
+3. Clears browser day/submission cache for that class.
+4. Reloads the day list.
+
+API equivalent:
+
 ```bash
 curl -X POST http://localhost:3001/api/cache/refresh \
-     -H "Content-Type: application/json" \
-     -d '{"class": "S004"}'
+  -H "Content-Type: application/json" \
+  -d '{"class":"S137"}'
 ```
-
-Omit the body to refresh all classes at once:
-```bash
-curl -X POST http://localhost:3001/api/cache/refresh
-```
-
-**Option B — Delete the cache file manually:**
-```bash
-rm cache/days-S004.json
-```
-The next page load will trigger a fresh Drive scan.
-
----
-
-## Google Drive Folder Structure Expected
-
-```
-<Class Root Folder>  ← this ID goes in CLASS_FOLDERS
-  └── <Student Name Folder>
-        └── <Day Folder>  (e.g., "Day 1", "Ngày 16")
-              └── audio files  (.mp3, .m4a, .ogg, etc.)
-```
-
-- Each student has **one folder per day** they submitted homework.
-- Students with **no folder for a given day** will appear as a blank row in the grading table.
-- Audio files are streamed through the Express server via `/api/audio/:fileId`.
 
 ---
 
 ## Files Changed Checklist
 
-| File | Change |
-|------|--------|
-| `server.js` | Add class ID → folder ID mapping to `CLASS_FOLDERS` |
-| `public/app.js` | Add class ID to `CLASSES_DATA` |
-| Server restart | Required after `server.js` changes |
+| File / Place | Change |
+|---|---|
+| Google Drive | Share class root folder with service account |
+| Supabase `classes` table | Insert class ID, folder ID, layout |
+| `src/config/classFolders.js` | Add fallback class config |
+| Sync API | Run `/api/sync/class` once |
