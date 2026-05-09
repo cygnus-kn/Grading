@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const workspace = document.querySelector('.container');
     const mainContent = document.querySelector('main');
     const APP_POSITION_KEY = 'gradingAppPosition';
+    const SUBMISSIONS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
     // ============================
     //  Sidebar Logic
@@ -304,6 +305,37 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.keys(localStorage).forEach(key => {
             if (key.startsWith(prefix)) localStorage.removeItem(key);
         });
+    }
+
+    function readSubmissionCache(cacheKey) {
+        const cachedData = localStorage.getItem(cacheKey);
+        if (!cachedData) return null;
+
+        const parsed = JSON.parse(cachedData);
+        if (Array.isArray(parsed)) {
+            return { data: parsed, isFresh: false };
+        }
+
+        if (parsed && Array.isArray(parsed.data)) {
+            const savedAt = Number(parsed.savedAt) || 0;
+            return {
+                data: parsed.data,
+                isFresh: Date.now() - savedAt < SUBMISSIONS_CACHE_MAX_AGE_MS
+            };
+        }
+
+        throw new Error('Invalid submissions cache');
+    }
+
+    function writeSubmissionCache(cacheKey, data) {
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify({
+                savedAt: Date.now(),
+                data
+            }));
+        } catch (error) {
+            console.warn('Could not save submissions cache:', error);
+        }
     }
 
     async function loadDaysForClass(className) {
@@ -739,21 +771,24 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // --- 1. Check Cache First (Instant Load) ---
         const cacheKey = `gradingSubmissions_${classId}_${selectedDay}`;
-        const cachedData = localStorage.getItem(cacheKey);
+        let cachedEntry = null;
         
-        if (cachedData) {
-            try {
-                const data = JSON.parse(cachedData);
-                if (!isCurrentRequest()) return;
-                dayBadge.textContent = getDayLabel(classId, selectedDay);
-                renderDayDropdown();
-                updateSidebarSelection(classId, selectedDay);
-                renderGradingTable(data, selectedDay);
-                // Don't show loading indicator if we have cached data
-                loadingIndicator.classList.add('hidden');
-            } catch (err) {
-                localStorage.removeItem(cacheKey);
-            }
+        try {
+            cachedEntry = readSubmissionCache(cacheKey);
+        } catch (err) {
+            localStorage.removeItem(cacheKey);
+        }
+
+        if (cachedEntry) {
+            if (!isCurrentRequest()) return;
+            dayBadge.textContent = getDayLabel(classId, selectedDay);
+            renderDayDropdown();
+            updateSidebarSelection(classId, selectedDay);
+            renderGradingTable(cachedEntry.data, selectedDay);
+            loadingIndicator.classList.add('hidden');
+            savePosition();
+
+            if (cachedEntry.isFresh) return;
         } else {
             // No cache: show loader and clear list
             loadingIndicator.classList.remove('hidden');
@@ -767,7 +802,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!isCurrentRequest()) return;
             
             // Save to cache for next time
-            localStorage.setItem(cacheKey, JSON.stringify(data));
+            writeSubmissionCache(cacheKey, data);
             
             loadingIndicator.classList.add('hidden');
             dayBadge.textContent = getDayLabel(classId, selectedDay);
