@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Homework Grading</title>
+  <rect width="64" height="64" rx="18" fill="#34c7d9"/>
+  <path d="M18 39v-7a14 14 0 0 1 28 0v7" fill="none" stroke="#071426" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 39v4.5A4.5 4.5 0 0 0 22.5 48H25V36h-2.5A4.5 4.5 0 0 0 18 40.5" fill="none" stroke="#071426" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M46 39v4.5A4.5 4.5 0 0 1 41.5 48H39V36h2.5A4.5 4.5 0 0 1 46 40.5" fill="none" stroke="#071426" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20 33.5 28.5 42 45 24" fill="none" stroke="#071426" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M50 29v10M56 32v4" fill="none" stroke="#071426" stroke-width="4" stroke-linecap="round"/>
+</svg>
