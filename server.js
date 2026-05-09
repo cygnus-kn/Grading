@@ -40,13 +40,9 @@ try {
 
 // Map Class IDs to Google Drive Folder IDs
 const CLASS_FOLDERS = {
-  'S001': {
-    folderId: '1d_JaEf8uEJgLaAlahXkku_HXX9baO7Ss',
+  'S136': {
+    folderId: '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r',
     layout: 'student-first',
-  },
-  'S305': {
-    folderId: '1z_Y1tQN0o_cuAW-M0oh-Hp5ELqYSPrMN',
-    layout: 'day-first',
   },
   // Add other IDs here when available
 };
@@ -200,7 +196,7 @@ async function getStudentFolders(parentFolderId) {
     fields: 'files(id, name)',
     pageSize: 100,
   }));
-  return res.data.files;
+  return res.data.files || [];
 }
 
 async function getChildFolders(parentFolderId) {
@@ -552,7 +548,7 @@ app.post('/api/feedback', (req, res) => {
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);
-    console.log(`Connected to Google Drive for S001`);
+    console.log(`Connected to Google Drive for S136`);
   });
 }
 

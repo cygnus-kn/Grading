@@ -3,9 +3,7 @@
 // ============================
 // Cache: classId -> { days: [{ day: N }], loaded: bool }
 const CLASSES_DATA = {
-    'S001': { days: [], loaded: false },
-    'S305': { days: [], loaded: false },
-    'S003': { days: [], loaded: false }
+    'S136': { days: [], loaded: false }
 };
 
 const DEFAULT_TABS = [];
@@ -857,8 +855,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // ============================
     //  Grading Table Rendering
     // ============================
+    function compareStudentsByName(a, b) {
+        return (a.name || '').localeCompare(b.name || '', 'vi', {
+            sensitivity: 'base',
+            numeric: true
+        });
+    }
+
     function renderGradingTable(students, selectedDay) {
-        if (students.length === 0) {
+        const sortedStudents = [...students].sort(compareStudentsByName);
+
+        if (sortedStudents.length === 0) {
             submissionsList.innerHTML = `<div class="placeholder-state"><p>No submissions found.</p></div>`;
             return;
         }
@@ -885,7 +892,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const body = document.createElement('div');
         body.className = 'grading-body';
 
-        students.forEach(student => {
+        sortedStudents.forEach(student => {
             const block = document.createElement('div');
             block.className = 'student-block';
             block.dataset.studentId = student.id;
@@ -1063,7 +1070,7 @@ document.addEventListener('DOMContentLoaded', () => {
         table.appendChild(body);
         submissionsList.innerHTML = '';
         submissionsList.appendChild(table);
-        syncGradingColumnWidths(table, students);
+        syncGradingColumnWidths(table, sortedStudents);
     }
 
     function syncGradingColumnWidths(table, students) {
