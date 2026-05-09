@@ -65,11 +65,13 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(res => res.json())
         .then(classes => {
             classes.forEach(c => {
-                if (CLASSES_DATA[c.id]) {
-                    const days = Array.isArray(c.days) ? c.days : [];
-                    CLASSES_DATA[c.id].days = days;
-                    CLASSES_DATA[c.id].loaded = days.length > 0;
+                if (!CLASSES_DATA[c.id]) {
+                    CLASSES_DATA[c.id] = { days: [], loaded: false };
                 }
+
+                const days = Array.isArray(c.days) ? c.days : [];
+                CLASSES_DATA[c.id].days = days;
+                CLASSES_DATA[c.id].loaded = days.length > 0;
             });
             renderSidebar();
             restoreCurrentPosition();
@@ -251,6 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
             (result.clearBrowserKeys || [`gradingDays_${className}`]).forEach(key => {
                 localStorage.removeItem(key);
             });
+            clearSubmissionCacheForClass(className);
 
             classData.loaded = false;
             classData.days = [];
@@ -294,6 +297,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function isKnownDay(className, dayValue) {
         return getClassDays(className).some(item => String(item.day) === String(dayValue));
+    }
+
+    function clearSubmissionCacheForClass(className) {
+        const prefix = `gradingSubmissions_${className}_`;
+        Object.keys(localStorage).forEach(key => {
+            if (key.startsWith(prefix)) localStorage.removeItem(key);
+        });
     }
 
     async function loadDaysForClass(className) {
