@@ -1,0 +1,196 @@
+const express = require('express');
+const { CLASS_FOLDERS, getClassConfig } = require('../config/classFolders');
+const { supabase } = require('../config/supabase');
+const { streamAudio } = require('../services/driveService');
+const {
+  clearDayFoldersMemoryCache,
+  clearSubmissionsCacheForClass,
+  readDaysFileCache,
+  readSubmissionsCache,
+  writeDaysFileCache,
+  writeSubmissionsCache,
+} = require('../services/cacheService');
+const {
+  getDriveSubmissions,
+  scanDaysForClass,
+} = require('../services/submissionsService');
+const {
+  getClassesFromSupabase,
+  getDaysFromSupabase,
+  getSubmissionsFromSupabase,
+  syncClassToSupabase,
+} = require('../services/supabaseMetadataService');
+
+const router = express.Router();
+
+function getLocalClasses() {
+  return Object.keys(CLASS_FOLDERS).map(id => ({
+    id,
+    days: readDaysFileCache(id) || [],
+  }));
+}
+
+router.get('/classes', async (req, res) => {
+  if (supabase) {
+    try {
+      return res.json(await getClassesFromSupabase());
+    } catch (error) {
+      console.error('Supabase classes error; falling back to Drive config:', error);
+    }
+  }
+
+  res.json(getLocalClasses());
+});
+
+router.get('/days', async (req, res) => {
+  const { class: classId } = req.query;
+  if (!classId) return res.status(400).json({ error: 'Class parameter required' });
+
+  if (supabase) {
+    try {
+      return res.json(await getDaysFromSupabase(classId));
+    } catch (error) {
+      console.error('Supabase days error; falling back to Drive scan:', error);
+    }
+  }
+
+  const classConfig = getClassConfig(classId);
+  if (!classConfig) return res.json([]);
+
+  const cached = readDaysFileCache(classId);
+  if (cached) {
+    console.log(`[cache] Serving days for ${classId} from file cache`);
+    return res.json(cached);
+  }
+
+  console.log(`[cache] No cache for ${classId}, scanning Drive...`);
+  try {
+    const days = await scanDaysForClass(classId, classConfig);
+    writeDaysFileCache(classId, days);
+    res.json(days);
+  } catch (error) {
+    console.error('Error fetching days:', error);
+    res.status(500).json({ error: 'Failed to fetch days' });
+  }
+});
+
+router.post('/cache/refresh', async (req, res) => {
+  const classId = req.body ? req.body.class : null;
+  const targets = classId ? [classId] : Object.keys(CLASS_FOLDERS);
+
+  if (supabase) {
+    const results = {};
+    for (const id of targets) {
+      try {
+        console.log(`[sync] Syncing ${id} from Drive to Supabase...`);
+        const result = await syncClassToSupabase(id);
+        results[id] = result.days;
+      } catch (err) {
+        results[id] = `error: ${err.message}`;
+      }
+    }
+
+    const clearBrowserKeys = targets.map(id => `gradingDays_${id}`);
+    return res.json({ refreshed: results, clearBrowserKeys });
+  }
+
+  const results = {};
+  for (const id of targets) {
+    const classConfig = getClassConfig(id);
+    if (!classConfig) continue;
+    try {
+      console.log(`[cache] Force refreshing ${id}...`);
+      clearDayFoldersMemoryCache(id);
+      const days = await scanDaysForClass(id, classConfig);
+      writeDaysFileCache(id, days);
+      clearSubmissionsCacheForClass(id);
+      results[id] = days.length;
+    } catch (err) {
+      results[id] = `error: ${err.message}`;
+    }
+  }
+
+  const clearBrowserKeys = targets.map(id => `gradingDays_${id}`);
+  res.json({ refreshed: results, clearBrowserKeys });
+});
+
+router.post('/sync/class', async (req, res) => {
+  const classId = req.body ? req.body.class : null;
+  if (!classId) return res.status(400).json({ error: 'Class parameter required' });
+
+  try {
+    const result = await syncClassToSupabase(classId);
+    res.json({
+      success: true,
+      class: classId,
+      result,
+      clearBrowserKeys: [`gradingDays_${classId}`],
+    });
+  } catch (error) {
+    console.error('Supabase sync error:', error);
+    res.status(500).json({ error: error.message || 'Failed to sync class' });
+  }
+});
+
+router.get('/submissions', async (req, res) => {
+  const { class: classId, day } = req.query;
+
+  if (!day || !classId) {
+    return res.status(400).json({ error: 'Class and Day parameters are required' });
+  }
+
+  if (supabase) {
+    try {
+      const results = await getSubmissionsFromSupabase(classId, day);
+      const audioFileCount = results.reduce((total, student) => total + student.answers.length, 0);
+      console.log(`[supabase] ${classId} day ${day}: ${results.length} students, ${audioFileCount} audio files`);
+      return res.json(results);
+    } catch (error) {
+      console.error('Supabase submissions error; falling back to Drive scan:', error);
+    }
+  }
+
+  const classConfig = getClassConfig(classId);
+  if (!classConfig) {
+    console.warn(`No root folder configured for class: ${classId}`);
+    return res.json([]);
+  }
+
+  const cached = readSubmissionsCache(classId, day);
+  if (cached) {
+    console.log(`[cache] Serving submissions for ${classId} day ${day} from memory cache`);
+    return res.json(cached);
+  }
+
+  try {
+    const results = await getDriveSubmissions(classId, classConfig, day);
+    const audioFileCount = results.reduce((total, student) => total + student.answers.length, 0);
+    console.log(`[submissions] ${classId} day ${day}: ${results.length} students, ${audioFileCount} audio files`);
+
+    writeSubmissionsCache(classId, day, results);
+    res.json(results);
+  } catch (error) {
+    console.error('Drive API Error:', error);
+    res.status(500).json({ error: 'Failed to fetch data from Google Drive' });
+  }
+});
+
+router.get('/audio/:fileId', async (req, res) => {
+  try {
+    await streamAudio(req.params.fileId, res);
+  } catch (error) {
+    console.error('Audio Proxy Error:', error);
+    res.status(500).send('Error fetching audio');
+  }
+});
+
+router.post('/feedback', (req, res) => {
+  const { studentId, day, question, comment } = req.body;
+  console.log(`Feedback received: Student ${studentId}, Day ${day}, Q: ${question}, Comment: ${comment}`);
+
+  setTimeout(() => {
+    res.json({ success: true, message: 'Comment pushed to Google Sheet (Simulated)' });
+  }, 800);
+});
+
+module.exports = router;
