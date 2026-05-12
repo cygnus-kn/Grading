@@ -2,9 +2,10 @@ const { getClassConfig } = require('../config/classFolders');
 const { requireSupabase, supabase } = require('../config/supabase');
 const { toQuestionLabel, parseDayNumber } = require('../utils/days');
 const {
-  getAudioFilesForFolders,
   getChildFolders,
+  getSubmissionFilesForFolders,
   getStudentFolders,
+  toSubmissionItem,
 } = require('./driveService');
 const { clearSubmissionsCacheForClass } = require('./cacheService');
 
@@ -74,6 +75,19 @@ async function getDaysFromSupabase(classId) {
   return (data || []).map(row => ({ day: row.day_number }));
 }
 
+async function getSubmissionFileRows(client, submissionIds) {
+  if (submissionIds.length === 0) return [];
+
+  const { data, error } = await client
+    .from('submission_files')
+    .select('submission_id, drive_file_id, parent_folder_id, file_name, question_label, file_kind, mime_type, web_view_link, thumbnail_link')
+    .in('submission_id', submissionIds)
+    .order('file_name', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
 async function getSubmissionsFromSupabase(classId, day) {
   const client = requireSupabase();
   const dayNumber = Number(day);
@@ -101,36 +115,23 @@ async function getSubmissionsFromSupabase(classId, day) {
     submission.id,
   ]));
 
-  let audioFiles = [];
-  if (submissionIds.length > 0) {
-    const { data, error } = await client
-      .from('audio_files')
-      .select('submission_id, drive_file_id, file_name, question_label')
-      .in('submission_id', submissionIds)
-      .order('file_name', { ascending: true });
+  const submissionFiles = await getSubmissionFileRows(client, submissionIds);
 
-    if (error) throw error;
-    audioFiles = data || [];
-  }
-
-  const audioFilesBySubmissionId = new Map();
-  audioFiles.forEach(file => {
-    const files = audioFilesBySubmissionId.get(file.submission_id) || [];
-    files.push({
-      q: file.question_label,
-      name: file.file_name,
-      audioUrl: `/api/audio/${file.drive_file_id}`,
-      status: 'pending',
-    });
-    audioFilesBySubmissionId.set(file.submission_id, files);
+  const submissionFilesBySubmissionId = new Map();
+  submissionFiles.forEach(file => {
+    const files = submissionFilesBySubmissionId.get(file.submission_id) || [];
+    files.push(toSubmissionItem(file));
+    submissionFilesBySubmissionId.set(file.submission_id, files);
   });
 
   return students.map(student => {
     const submissionId = submissionIdByStudentId.get(student.id);
+    const files = submissionId ? (submissionFilesBySubmissionId.get(submissionId) || []) : [];
     return {
       id: student.id,
       name: student.name,
-      answers: submissionId ? (audioFilesBySubmissionId.get(submissionId) || []) : [],
+      answers: files,
+      submissionFiles: files,
     };
   });
 }
@@ -151,7 +152,7 @@ async function syncStudentFirstClass(classId, classConfig) {
   const now = new Date().toISOString();
   const students = await getStudentFolders(classConfig.folderId);
   const dayFolders = await getDayFoldersForSync(students);
-  const filesByFolderId = await getAudioFilesForFolders(dayFolders);
+  const filesByFolderId = await getSubmissionFilesForFolders(dayFolders);
 
   await upsertRows('students', students.map(student => ({
     id: student.id,
@@ -187,29 +188,34 @@ async function syncStudentFirstClass(classId, classConfig) {
     submission.id,
   ]));
 
-  const audioRows = [];
+  const submissionFileRows = [];
   dayFolders.forEach(folder => {
     const submissionId = submissionIdByKey.get(`${folder.studentId}:${folder.day}`);
     if (!submissionId) return;
 
     const files = filesByFolderId.get(folder.id) || [];
     files.forEach(file => {
-      audioRows.push({
+      const submissionItem = toSubmissionItem(file);
+      submissionFileRows.push({
         id: file.id,
         submission_id: submissionId,
         class_id: classId,
         student_id: folder.studentId,
         day_number: folder.day,
         drive_file_id: file.id,
+        parent_folder_id: file.parents?.[0] || folder.id,
         file_name: file.name,
         question_label: toQuestionLabel(file.name),
+        file_kind: submissionItem.kind,
         mime_type: file.mimeType || null,
+        web_view_link: file.webViewLink || null,
+        thumbnail_link: file.thumbnailLink || null,
         updated_at: now,
       });
     });
   });
 
-  await upsertRows('audio_files', audioRows, { onConflict: 'id' });
+  await upsertRows('submission_files', submissionFileRows, { onConflict: 'id' });
 
   const { error } = await client
     .from('classes')
@@ -222,7 +228,7 @@ async function syncStudentFirstClass(classId, classConfig) {
     students: students.length,
     days: uniqueDayNumbers.length,
     submissions: syncedSubmissions.length,
-    audioFiles: audioRows.length,
+    submissionFiles: submissionFileRows.length,
   };
 }
 

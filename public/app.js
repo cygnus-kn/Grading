@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.querySelector('main');
     const APP_POSITION_KEY = 'gradingAppPosition';
     const SUBMISSIONS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+    const SUBMISSIONS_CACHE_PREFIX = 'gradingSubmissionsV3_';
+    const GOOGLE_DOC_MIME_TYPE = 'application/vnd.google-apps.document';
 
     // ============================
     //  Sidebar Logic
@@ -287,9 +289,89 @@ document.addEventListener('DOMContentLoaded', () => {
         return `Day ${dayNumber}`;
     }
 
-    function getAudioDisplayName(answer) {
-        const name = answer?.name || answer?.q || '';
-        return name.replace(/\.[^/.]+$/, '');
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[char]));
+    }
+
+    function getSubmissionFiles(student) {
+        if (Array.isArray(student?.submissionFiles)) return student.submissionFiles;
+        if (Array.isArray(student?.answers)) return student.answers;
+        return [];
+    }
+
+    function getSubmissionDisplayName(submission) {
+        return submission?.name || submission?.q || '';
+    }
+
+    function getSubmissionColumnName(submission) {
+        return getSubmissionDisplayName(submission).replace(/\.[^/.]+$/, '');
+    }
+
+    function getFileExtension(fileName) {
+        const match = String(fileName || '').toLowerCase().match(/\.[^.]+$/);
+        return match ? match[0] : '';
+    }
+
+    function inferSubmissionKind(submission) {
+        const kind = submission?.kind || submission?.fileKind;
+        if (kind) return kind;
+
+        const mimeType = String(submission?.mimeType || '').toLowerCase();
+        const extension = getFileExtension(submission?.name);
+        if (mimeType.startsWith('audio/') || ['.aac', '.aif', '.aiff', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav', '.webm', '.wma'].includes(extension)) return 'audio';
+        if (mimeType.startsWith('image/') || ['.avif', '.gif', '.heic', '.heif', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'].includes(extension)) return 'image';
+        if (
+            mimeType === GOOGLE_DOC_MIME_TYPE ||
+            mimeType === 'application/pdf' ||
+            mimeType === 'application/msword' ||
+            mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+            ['.doc', '.docx', '.gdoc', '.odt', '.pdf', '.rtf', '.txt'].includes(extension)
+        ) return 'document';
+        return 'file';
+    }
+
+    function isGoogleDoc(submission) {
+        return String(submission?.mimeType || '').toLowerCase() === GOOGLE_DOC_MIME_TYPE;
+    }
+
+    function isPdf(submission) {
+        const mimeType = String(submission?.mimeType || '').toLowerCase();
+        return mimeType === 'application/pdf' || getFileExtension(submission?.name) === '.pdf';
+    }
+
+    function getSubmissionContentUrl(submission) {
+        if (submission?.contentUrl) return submission.contentUrl;
+        if (submission?.audioUrl) return submission.audioUrl;
+        return submission?.driveFileId ? `/api/files/${submission.driveFileId}/content` : '';
+    }
+
+    function getSubmissionExportPdfUrl(submission) {
+        if (submission?.exportPdfUrl) return submission.exportPdfUrl;
+        return submission?.driveFileId ? `/api/files/${submission.driveFileId}/export?format=pdf` : '';
+    }
+
+    function getSubmissionOpenUrl(submission) {
+        if (submission?.webViewLink) return submission.webViewLink;
+        return submission?.driveFileId ? `https://drive.google.com/file/d/${submission.driveFileId}/view` : '';
+    }
+
+    function getSubmissionFolderUrl(submission) {
+        if (submission?.folderUrl) return submission.folderUrl;
+        if (submission?.parentFolderId) return `https://drive.google.com/drive/folders/${submission.parentFolderId}`;
+        return '';
+    }
+
+    function getSubmissionPreviewUrl(submission) {
+        if (isGoogleDoc(submission)) return getSubmissionExportPdfUrl(submission);
+        if (isPdf(submission)) return getSubmissionContentUrl(submission);
+        if (submission?.drivePreviewUrl) return submission.drivePreviewUrl;
+        return submission?.driveFileId ? `https://drive.google.com/file/d/${submission.driveFileId}/preview` : '';
     }
 
     function isKnownClass(className) {
@@ -301,9 +383,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function clearSubmissionCacheForClass(className) {
-        const prefix = `gradingSubmissions_${className}_`;
+        const prefixes = [
+            `${SUBMISSIONS_CACHE_PREFIX}${className}_`,
+            `gradingSubmissionsV2_${className}_`,
+            `gradingSubmissions_${className}_`
+        ];
         Object.keys(localStorage).forEach(key => {
-            if (key.startsWith(prefix)) localStorage.removeItem(key);
+            if (prefixes.some(prefix => key.startsWith(prefix))) localStorage.removeItem(key);
         });
     }
 
@@ -604,7 +690,7 @@ document.addEventListener('DOMContentLoaded', () => {
         headerRow.innerHTML = `
             <div class="grading-cell header-cell">${HEADER_ICONS.student} Student</div>
             <div class="grading-cell header-cell">${HEADER_ICONS.name} Name</div>
-            <div class="grading-cell header-cell">${HEADER_ICONS.audio} Audio</div>
+            <div class="grading-cell header-cell">${HEADER_ICONS.submission} Submission</div>
             <div class="grading-cell header-cell">${HEADER_ICONS.comments} Comments</div>
         `;
         header.appendChild(headerRow);
@@ -618,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
             row.innerHTML = `
                 <div class="grading-cell student-cell"><span class="skeleton-dot"></span><span class="skeleton-line skeleton-student"></span></div>
                 <div class="grading-cell name-cell"><span class="skeleton-line skeleton-name"></span></div>
-                <div class="grading-cell audio-cell"><span class="skeleton-play"></span><span class="skeleton-line skeleton-audio"></span><span class="skeleton-line skeleton-time"></span></div>
+                <div class="grading-cell submission-cell"><span class="skeleton-play"></span><span class="skeleton-line skeleton-audio"></span><span class="skeleton-line skeleton-time"></span></div>
                 <div class="grading-cell comment-cell"><span class="skeleton-line skeleton-comment"></span></div>
             `;
             body.appendChild(row);
@@ -770,7 +856,7 @@ document.addEventListener('DOMContentLoaded', () => {
         );
         
         // --- 1. Check Cache First (Instant Load) ---
-        const cacheKey = `gradingSubmissions_${classId}_${selectedDay}`;
+        const cacheKey = `${SUBMISSIONS_CACHE_PREFIX}${classId}_${selectedDay}`;
         let cachedEntry = null;
         
         try {
@@ -831,9 +917,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const HEADER_ICONS = {
         student: `<svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
         name: `<svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>`,
-        audio: `<svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>`,
+        submission: `<svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
         comments: `<svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`
     };
+    const FILE_TYPE_ICONS = {
+        audio: `<svg class="submission-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
+        image: `<svg class="submission-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>`,
+        document: `<svg class="submission-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>`,
+        file: `<svg class="submission-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M13 2v7h7"/></svg>`,
+    };
+    const DRIVE_ICON = `<svg class="drive-icon" viewBox="0 0 87.3 78" aria-hidden="true"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0-1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>`;
     const EXPAND_TRANSITION_MS = 240;
     const COLLAPSE_TRANSITION_MS = 340;
 
@@ -907,6 +1000,240 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    let submissionPreviewModal = null;
+
+    function getSubmissionIcon(submission) {
+        return FILE_TYPE_ICONS[inferSubmissionKind(submission)] || FILE_TYPE_ICONS.file;
+    }
+
+    function getKindLabel(submission) {
+        const kind = inferSubmissionKind(submission);
+        return kind.charAt(0).toUpperCase() + kind.slice(1);
+    }
+
+    function buildAudioPlayerHtml(audioUrl) {
+        return `
+            <div class="audio-player-compact" tabindex="0" role="button" aria-label="Audio player">
+                <button class="play-mini-btn" type="button" aria-label="Play audio">▶</button>
+                <div class="scrubber-container">
+                    <div class="scrubber-track">
+                        <div class="scrubber-progress"></div>
+                        <div class="scrubber-knob"></div>
+                    </div>
+                </div>
+                <span class="time-display">--:--</span>
+                <audio class="hidden-audio" src="${escapeHtml(audioUrl)}" preload="metadata"></audio>
+            </div>
+        `;
+    }
+
+    function buildDriveFolderButton(submission) {
+        const folderUrl = getSubmissionFolderUrl(submission);
+        if (!folderUrl) return '<div class="drive-folder-btn drive-folder-placeholder" aria-hidden="true"></div>';
+        return `
+            <a class="drive-folder-btn" href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener" title="Open containing folder in Drive" aria-label="Open containing folder in Drive">
+                ${DRIVE_ICON}
+            </a>
+        `;
+    }
+
+    function wireAudioPlayer(root) {
+        const audio = root.querySelector('.hidden-audio');
+        const playBtn = root.querySelector('.play-mini-btn');
+        const audioPlayer = root.querySelector('.audio-player-compact');
+        const progress = root.querySelector('.scrubber-progress');
+        const knob = root.querySelector('.scrubber-knob');
+        const timeDisplay = root.querySelector('.time-display');
+        if (!audio || !playBtn || !audioPlayer || !progress || !knob || !timeDisplay) return;
+
+        const hasUsableDuration = () => Number.isFinite(audio.duration) && audio.duration > 0;
+
+        const updateDurationDisplay = () => {
+            timeDisplay.textContent = hasUsableDuration() ? formatTime(audio.duration) : '--:--';
+        };
+
+        const updateRemainingTime = () => {
+            if (!hasUsableDuration()) {
+                timeDisplay.textContent = '--:--';
+                return;
+            }
+            const remaining = Math.max(0, audio.duration - audio.currentTime);
+            timeDisplay.textContent = formatTime(remaining);
+        };
+
+        const toggleAudio = () => {
+            if (audio.paused) {
+                document.querySelectorAll('audio').forEach(a => a.pause());
+                document.querySelectorAll('.play-mini-btn').forEach(b => b.textContent = '▶');
+                audio.play()
+                    .then(() => {
+                        playBtn.textContent = '⏸';
+                    })
+                    .catch(() => {
+                        playBtn.textContent = '▶';
+                    });
+            } else {
+                audio.pause();
+                playBtn.textContent = '▶';
+            }
+        };
+
+        playBtn.addEventListener('click', toggleAudio);
+        audioPlayer.addEventListener('keydown', (event) => {
+            if (event.target === playBtn || (event.key !== ' ' && event.key !== 'Enter')) return;
+            event.preventDefault();
+            toggleAudio();
+        });
+
+        audio.addEventListener('loadedmetadata', updateDurationDisplay);
+        audio.addEventListener('durationchange', updateDurationDisplay);
+        audio.addEventListener('pause', () => {
+            playBtn.textContent = '▶';
+        });
+        audio.addEventListener('timeupdate', () => {
+            if (!hasUsableDuration()) {
+                progress.style.width = '0%';
+                knob.style.left = '0%';
+                timeDisplay.textContent = '--:--';
+                return;
+            }
+            const pct = (audio.currentTime / audio.duration) * 100;
+            progress.style.width = `${pct}%`;
+            knob.style.left = `${pct}%`;
+            updateRemainingTime();
+        });
+        audio.addEventListener('ended', () => {
+            playBtn.textContent = '▶';
+            progress.style.width = '0%';
+            knob.style.left = '0%';
+            updateDurationDisplay();
+        });
+    }
+
+    function closeSubmissionPreview() {
+        if (!submissionPreviewModal) return;
+        submissionPreviewModal.classList.add('hidden');
+        submissionPreviewModal.querySelectorAll('audio').forEach(audio => audio.pause());
+    }
+
+    function ensureSubmissionPreviewModal() {
+        if (submissionPreviewModal) return submissionPreviewModal;
+
+        const modal = document.createElement('div');
+        modal.className = 'submission-preview-modal hidden';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.innerHTML = `
+            <div class="submission-preview-panel">
+                <div class="submission-preview-header">
+                    <div class="submission-preview-title-wrap">
+                        <div class="submission-preview-title"></div>
+                        <div class="submission-preview-meta"></div>
+                    </div>
+                    <div class="submission-preview-actions">
+                        <a class="preview-open-link" href="#" target="_blank" rel="noopener">Open</a>
+                        <button class="preview-close-btn" type="button" aria-label="Close preview">
+                            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                                <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="submission-preview-body"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) closeSubmissionPreview();
+        });
+        modal.querySelector('.preview-close-btn').addEventListener('click', closeSubmissionPreview);
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+                closeSubmissionPreview();
+            }
+        });
+
+        submissionPreviewModal = modal;
+        return submissionPreviewModal;
+    }
+
+    function renderPreviewFallback(body, submission) {
+        const openUrl = getSubmissionOpenUrl(submission);
+        body.innerHTML = `
+            <div class="preview-fallback">
+                <p>Preview is not available for this file type.</p>
+                ${openUrl ? `<a href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">Open in Drive</a>` : ''}
+            </div>
+        `;
+    }
+
+    function openSubmissionPreview(submission) {
+        if (!submission) return;
+        const modal = ensureSubmissionPreviewModal();
+        const kind = inferSubmissionKind(submission);
+        const name = getSubmissionDisplayName(submission);
+        const title = modal.querySelector('.submission-preview-title');
+        const meta = modal.querySelector('.submission-preview-meta');
+        const openLink = modal.querySelector('.preview-open-link');
+        const body = modal.querySelector('.submission-preview-body');
+        const openUrl = getSubmissionOpenUrl(submission);
+
+        title.innerHTML = `${getSubmissionIcon(submission)}<span>${escapeHtml(name || 'Submission')}</span>`;
+        meta.textContent = getKindLabel(submission);
+        openLink.href = openUrl || '#';
+        openLink.classList.toggle('hidden', !openUrl);
+        body.innerHTML = '';
+
+        if (kind === 'audio') {
+            const audioUrl = getSubmissionContentUrl(submission);
+            if (!audioUrl) {
+                renderPreviewFallback(body, submission);
+            } else {
+                body.innerHTML = `<div class="preview-audio">${buildAudioPlayerHtml(audioUrl)}</div>`;
+                wireAudioPlayer(body);
+            }
+        } else if (kind === 'image') {
+            const imageUrl = getSubmissionContentUrl(submission);
+            if (!imageUrl) {
+                renderPreviewFallback(body, submission);
+            } else {
+                body.innerHTML = `
+                    <div class="preview-image-stage">
+                        <img class="submission-preview-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(name)}">
+                        <div class="preview-fallback hidden">
+                            <p>This image format may need Drive preview.</p>
+                            ${openUrl ? `<a href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">Open in Drive</a>` : ''}
+                        </div>
+                    </div>
+                `;
+                const image = body.querySelector('.submission-preview-image');
+                const fallback = body.querySelector('.preview-fallback');
+                image.addEventListener('error', () => {
+                    image.classList.add('hidden');
+                    fallback?.classList.remove('hidden');
+                });
+            }
+        } else if (kind === 'document') {
+            const previewUrl = getSubmissionPreviewUrl(submission);
+            if (!previewUrl) {
+                renderPreviewFallback(body, submission);
+            } else {
+                body.innerHTML = `
+                    <iframe
+                        class="submission-preview-frame"
+                        src="${escapeHtml(previewUrl)}"
+                        title="${escapeHtml(name || 'Document preview')}"
+                    ></iframe>
+                `;
+            }
+        } else {
+            renderPreviewFallback(body, submission);
+        }
+
+        modal.classList.remove('hidden');
+    }
+
     function renderGradingTable(students, selectedDay) {
         const sortedStudents = [...students].sort(compareStudentsByName);
 
@@ -927,7 +1254,7 @@ document.addEventListener('DOMContentLoaded', () => {
         headerRow.innerHTML = `
             <div class="grading-cell header-cell">${HEADER_ICONS.student} Student</div>
             <div class="grading-cell header-cell">${HEADER_ICONS.name} Name</div>
-            <div class="grading-cell header-cell">${HEADER_ICONS.audio} Audio</div>
+            <div class="grading-cell header-cell">${HEADER_ICONS.submission} Submission</div>
             <div class="grading-cell header-cell">${HEADER_ICONS.comments} Comments</div>
         `;
         header.appendChild(headerRow);
@@ -943,12 +1270,13 @@ document.addEventListener('DOMContentLoaded', () => {
             block.dataset.studentId = student.id;
             block.dataset.expansionKey = getStudentExpansionKey(activeTabId, selectedDay, student.id);
 
-            const hasAnswers = student.answers && student.answers.length > 0;
-            const hasMultiple = hasAnswers && student.answers.length > 1;
-            block.classList.toggle('missing-homework', !hasAnswers);
+            const submissionFiles = getSubmissionFiles(student);
+            const hasSubmissions = submissionFiles.length > 0;
+            const hasMultiple = hasSubmissions && submissionFiles.length > 1;
+            block.classList.toggle('missing-homework', !hasSubmissions);
 
-            // Helper: build a single row given an answer and whether its student cell is shown
-            const buildRow = (answer, showStudentCell) => {
+            // Helper: build a single row given a submission and whether its student cell is shown
+            const buildRow = (submission, showStudentCell) => {
                 const row = document.createElement('div');
                 row.className = showStudentCell ? 'grading-row' : 'grading-row sub-row';
 
@@ -958,7 +1286,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     studentCell.className = 'grading-cell student-cell clickable';
                     studentCell.innerHTML = `
                         <span class="student-toggle-arrow">${CHEVRON_SVG}</span>
-                        <span class="student-name-text">${student.name}</span>
+                        <span class="student-name-text">${escapeHtml(student.name)}</span>
                     `;
                     studentCell.addEventListener('click', () => {
                         const isExpanded = block.classList.contains('expanded');
@@ -975,99 +1303,60 @@ document.addEventListener('DOMContentLoaded', () => {
                 // --- Name Cell ---
                 const nameCell = document.createElement('div');
                 nameCell.className = 'grading-cell name-cell';
-                if (answer && (answer.name || answer.q)) {
-                    nameCell.innerHTML = `<span class="name-text">${getAudioDisplayName(answer)}</span>`;
+                if (submission && (submission.name || submission.q)) {
+                    const displayName = getSubmissionColumnName(submission);
+                    nameCell.innerHTML = `
+                        <div class="submission-name-display" title="${escapeHtml(displayName)}">
+                            ${getSubmissionIcon(submission)}
+                            <span class="name-text">${escapeHtml(displayName)}</span>
+                        </div>
+                    `;
                 }
                 row.appendChild(nameCell);
 
-                // --- Audio Cell ---
-                const audioCell = document.createElement('div');
-                audioCell.className = 'grading-cell audio-cell';
-                if (answer && answer.audioUrl) {
-                    audioCell.innerHTML = `
-                        <div class="audio-player-compact" tabindex="0" role="button" aria-label="Audio player">
-                            <button class="play-mini-btn" type="button" aria-label="Play audio">▶</button>
-                            <div class="scrubber-container">
-                                <div class="scrubber-track">
-                                    <div class="scrubber-progress"></div>
-                                    <div class="scrubber-knob"></div>
-                                </div>
+                // --- Submission Cell ---
+                const submissionCell = document.createElement('div');
+                submissionCell.className = 'grading-cell submission-cell';
+                if (submission && (submission.name || submission.q)) {
+                    const kind = inferSubmissionKind(submission);
+                    const contentUrl = getSubmissionContentUrl(submission);
+                    const driveFolderButton = buildDriveFolderButton(submission);
+
+                    if (kind === 'audio' && contentUrl) {
+                        submissionCell.innerHTML = `
+                            <div class="submission-actions">
+                                ${buildAudioPlayerHtml(contentUrl)}
+                                ${driveFolderButton}
                             </div>
-                            <span class="time-display">--:--</span>
-                            <audio class="hidden-audio" src="${answer.audioUrl}" preload="metadata"></audio>
+                        `;
+                        wireAudioPlayer(submissionCell);
+                    } else {
+                        submissionCell.innerHTML = `
+                            <div class="submission-actions">
+                                <button class="preview-file-btn" type="button">
+                                    <span>Preview</span>
+                                </button>
+                                ${driveFolderButton}
+                            </div>
+                        `;
+                        submissionCell.querySelector('.preview-file-btn').addEventListener('click', () => {
+                            openSubmissionPreview(submission);
+                        });
+                    }
+                } else {
+                    submissionCell.innerHTML = `
+                        <div class="submission-actions submission-actions-empty">
+                            <div class="submission-empty-main" aria-hidden="true"></div>
+                            <div class="drive-folder-btn drive-folder-placeholder" aria-hidden="true"></div>
                         </div>
                     `;
-                    // Wire audio
-                    const audio = audioCell.querySelector('.hidden-audio');
-                    const playBtn = audioCell.querySelector('.play-mini-btn');
-                    const audioPlayer = audioCell.querySelector('.audio-player-compact');
-                    const progress = audioCell.querySelector('.scrubber-progress');
-                    const knob = audioCell.querySelector('.scrubber-knob');
-                    const timeDisplay = audioCell.querySelector('.time-display');
-
-                    const hasUsableDuration = () => Number.isFinite(audio.duration) && audio.duration > 0;
-
-                    const updateDurationDisplay = () => {
-                        timeDisplay.textContent = hasUsableDuration() ? formatTime(audio.duration) : '--:--';
-                    };
-
-                    const updateRemainingTime = () => {
-                        if (!hasUsableDuration()) {
-                            timeDisplay.textContent = '--:--';
-                            return;
-                        }
-                        const remaining = Math.max(0, audio.duration - audio.currentTime);
-                        timeDisplay.textContent = formatTime(remaining);
-                    };
-
-                    const toggleAudio = () => {
-                        if (audio.paused) {
-                            document.querySelectorAll('audio').forEach(a => a.pause());
-                            document.querySelectorAll('.play-mini-btn').forEach(b => b.textContent = '▶');
-                            audio.play();
-                            playBtn.textContent = '⏸';
-                        } else {
-                            audio.pause();
-                            playBtn.textContent = '▶';
-                        }
-                    };
-
-                    playBtn.addEventListener('click', toggleAudio);
-                    audioPlayer.addEventListener('keydown', (event) => {
-                        if (event.target === playBtn || (event.key !== ' ' && event.key !== 'Enter')) return;
-                        event.preventDefault();
-                        toggleAudio();
-                    });
-
-                    audio.addEventListener('loadedmetadata', updateDurationDisplay);
-                    audio.addEventListener('durationchange', updateDurationDisplay);
-
-                    audio.addEventListener('timeupdate', () => {
-                        if (!hasUsableDuration()) {
-                            progress.style.width = '0%';
-                            knob.style.left = '0%';
-                            timeDisplay.textContent = '--:--';
-                            return;
-                        }
-                        const pct = (audio.currentTime / audio.duration) * 100;
-                        progress.style.width = `${pct}%`;
-                        knob.style.left = `${pct}%`;
-                        updateRemainingTime();
-                    });
-
-                    audio.addEventListener('ended', () => {
-                        playBtn.textContent = '▶';
-                        progress.style.width = '0%';
-                        knob.style.left = '0%';
-                        updateDurationDisplay();
-                    });
                 }
-                row.appendChild(audioCell);
+                row.appendChild(submissionCell);
 
                 // --- Comment Cell ---
                 const commentCell = document.createElement('div');
                 commentCell.className = 'grading-cell comment-cell';
-                if (answer && (answer.name || answer.q)) {
+                if (submission && (submission.name || submission.q)) {
                     commentCell.innerHTML = `
                         <div class="feedback-mini-section">
                             <input type="text" class="feedback-input" placeholder="...">
@@ -1080,7 +1369,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const sendBtn = commentCell.querySelector('.send-btn');
                     const feedbackInput = commentCell.querySelector('.feedback-input');
                     sendBtn.addEventListener('click', () => {
-                        submitFeedback(student.id, selectedDay, answer.q, feedbackInput.value, sendBtn);
+                        submitFeedback(student.id, selectedDay, submission.q || getSubmissionDisplayName(submission), feedbackInput.value, sendBtn);
                     });
                 }
                 row.appendChild(commentCell);
@@ -1088,19 +1377,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 return row;
             };
 
-            if (!hasAnswers) {
-                // If no answers, render a single row with just the student name
+            if (!hasSubmissions) {
+                // If no submissions, render a single row with just the student name
                 block.appendChild(buildRow(null, true));
             } else {
                 // First row is always visible
-                block.appendChild(buildRow(student.answers[0], true));
+                block.appendChild(buildRow(submissionFiles[0], true));
 
                 // Remaining rows live in the animated container
                 if (hasMultiple) {
                     const collapsible = document.createElement('div');
                     collapsible.className = 'collapsible-rows-container';
-                    student.answers.slice(1).forEach(answer => {
-                        collapsible.appendChild(buildRow(answer, false));
+                    submissionFiles.slice(1).forEach(submission => {
+                        collapsible.appendChild(buildRow(submission, false));
                     });
                     block.appendChild(collapsible);
                     if (expandedStudentRows.has(block.dataset.expansionKey)) {
@@ -1166,8 +1455,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const sampleNameText = table.querySelector('.name-text');
             const nameChromeWidth = sampleNameCell ? cellChromeWidth(sampleNameCell) : 0;
             students.forEach(student => {
-                (student.answers || []).forEach(answer => {
-                    const label = getAudioDisplayName(answer);
+                getSubmissionFiles(student).forEach(submission => {
+                    const label = getSubmissionColumnName(submission);
                     nameWidth = Math.max(nameWidth, Math.ceil(textWidth(label, sampleNameText) + nameChromeWidth));
                 });
             });

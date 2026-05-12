@@ -2,6 +2,20 @@ const { drive } = require('../config/googleDrive');
 const { matchesDayFolder, normalizeDays, parseDayNumber } = require('../utils/days');
 
 const DRIVE_RETRY_DELAYS_MS = [500, 1500, 3500];
+const GOOGLE_DOC_MIME_TYPE = 'application/vnd.google-apps.document';
+const GOOGLE_DRIVE_FILE_BASE_URL = 'https://drive.google.com/file/d';
+const AUDIO_EXTENSIONS = new Set(['.aac', '.aif', '.aiff', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav', '.webm', '.wma']);
+const IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.heic', '.heif', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp']);
+const DOCUMENT_EXTENSIONS = new Set(['.doc', '.docx', '.gdoc', '.odt', '.pdf', '.rtf', '.txt']);
+const DOCUMENT_MIME_TYPES = new Set([
+  GOOGLE_DOC_MIME_TYPE,
+  'application/msword',
+  'application/pdf',
+  'application/rtf',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+]);
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -69,8 +83,17 @@ async function getAudioFiles(folderId) {
   return res.data.files || [];
 }
 
-async function getAudioFilesRecursive(rootFolderId) {
-  const audioFilesById = new Map();
+async function getSubmissionFiles(folderId) {
+  assertDrive();
+  const res = await withDriveRetry(() => drive.files.list({
+    q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id, name, mimeType, parents, webViewLink, webContentLink, thumbnailLink, iconLink)',
+  }));
+  return res.data.files || [];
+}
+
+async function getSubmissionFilesRecursive(rootFolderId) {
+  const submissionFilesById = new Map();
   const folderQueue = [rootFolderId];
   const visitedFolderIds = new Set();
 
@@ -79,13 +102,13 @@ async function getAudioFilesRecursive(rootFolderId) {
     if (!folderId || visitedFolderIds.has(folderId)) continue;
     visitedFolderIds.add(folderId);
 
-    const [audioFiles, childFolders] = await Promise.all([
-      getAudioFiles(folderId),
+    const [submissionFiles, childFolders] = await Promise.all([
+      getSubmissionFiles(folderId),
       getChildFolders(folderId),
     ]);
 
-    audioFiles.forEach(file => {
-      audioFilesById.set(file.id, file);
+    submissionFiles.forEach(file => {
+      submissionFilesById.set(file.id, file);
     });
 
     childFolders.forEach(folder => {
@@ -95,7 +118,7 @@ async function getAudioFilesRecursive(rootFolderId) {
     });
   }
 
-  return [...audioFilesById.values()];
+  return [...submissionFilesById.values()];
 }
 
 async function getDayFolders(rootFolderId) {
@@ -175,6 +198,23 @@ async function getAudioFilesForFolders(dayFolders) {
   return filesByFolderId;
 }
 
+async function getSubmissionFilesForFolders(dayFolders) {
+  assertDrive();
+  if (!dayFolders.length) return new Map();
+
+  const filesByFolderId = new Map(dayFolders.map(folder => [folder.id, []]));
+  const nestedFiles = await Promise.all(dayFolders.map(async folder => [
+    folder.id,
+    await getSubmissionFilesRecursive(folder.id),
+  ]));
+
+  nestedFiles.forEach(([folderId, files]) => {
+    filesByFolderId.set(folderId, files);
+  });
+
+  return filesByFolderId;
+}
+
 async function scanDaysFromDrive(rootFolderId) {
   assertDrive();
   const students = await getStudentFolders(rootFolderId);
@@ -208,29 +248,145 @@ function toAudioAnswers(files) {
     }));
 }
 
+function getFileExtension(fileName) {
+  const match = String(fileName || '').toLowerCase().match(/\.[^.]+$/);
+  return match ? match[0] : '';
+}
+
+function classifySubmissionFile(file) {
+  const mimeType = String(file?.mimeType || file?.mime_type || '').toLowerCase();
+  const extension = getFileExtension(file?.name || file?.file_name);
+
+  if (mimeType.startsWith('audio/') || AUDIO_EXTENSIONS.has(extension)) return 'audio';
+  if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(extension)) return 'image';
+  if (DOCUMENT_MIME_TYPES.has(mimeType) || DOCUMENT_EXTENSIONS.has(extension)) return 'document';
+  return 'file';
+}
+
+function toDriveOpenUrl(fileId) {
+  return fileId ? `${GOOGLE_DRIVE_FILE_BASE_URL}/${fileId}/view` : '';
+}
+
+function toDrivePreviewUrl(fileId) {
+  return fileId ? `${GOOGLE_DRIVE_FILE_BASE_URL}/${fileId}/preview` : '';
+}
+
+function toDriveFolderUrl(folderId) {
+  return folderId ? `https://drive.google.com/drive/folders/${folderId}` : '';
+}
+
+function toSubmissionItem(file) {
+  const driveFileId = file.driveFileId || file.drive_file_id || file.id;
+  const parentFolderId = file.parentFolderId || file.parent_folder_id || file.parents?.[0] || null;
+  const fileName = file.name || file.file_name || '';
+  const mimeType = file.mimeType || file.mime_type || null;
+  const kind = file.kind || file.file_kind || classifySubmissionFile(file);
+  const contentUrl = driveFileId ? `/api/files/${driveFileId}/content` : '';
+
+  const item = {
+    q: file.question_label || file.q || fileName.replace(/\.[^/.]+$/, ''),
+    name: fileName,
+    kind,
+    fileKind: kind,
+    driveFileId,
+    parentFolderId,
+    mimeType,
+    webViewLink: file.webViewLink || file.web_view_link || toDriveOpenUrl(driveFileId),
+    folderUrl: file.folderUrl || file.folder_url || toDriveFolderUrl(parentFolderId),
+    drivePreviewUrl: file.drivePreviewUrl || toDrivePreviewUrl(driveFileId),
+    thumbnailLink: file.thumbnailLink || file.thumbnail_link || null,
+    contentUrl,
+    exportPdfUrl: driveFileId ? `/api/files/${driveFileId}/export?format=pdf` : '',
+    status: 'pending',
+  };
+
+  if (kind === 'audio') {
+    item.audioUrl = contentUrl;
+  }
+
+  return item;
+}
+
+function toSubmissionItems(files) {
+  return files
+    .sort((a, b) => (a.name || a.file_name || '').localeCompare(
+      b.name || b.file_name || '',
+      undefined,
+      { sensitivity: 'base', numeric: true }
+    ))
+    .map(toSubmissionItem);
+}
+
+function safeHeaderFileName(fileName) {
+  return String(fileName || 'submission')
+    .replace(/[\r\n"]/g, '')
+    .trim() || 'submission';
+}
+
 async function streamAudio(fileId, res) {
+  return streamDriveFile(fileId, res);
+}
+
+async function streamDriveFile(fileId, res) {
   assertDrive();
-  const response = await drive.files.get(
+  const metadata = await withDriveRetry(() => drive.files.get({
+    fileId,
+    fields: 'id, name, mimeType',
+  }));
+
+  const response = await withDriveRetry(() => drive.files.get(
     { fileId, alt: 'media' },
     { responseType: 'stream' }
-  );
+  ));
 
-  res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
+  const contentType = response.headers['content-type'] || metadata.data.mimeType || 'application/octet-stream';
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', `inline; filename="${safeHeaderFileName(metadata.data.name)}"`);
   response.data
     .on('end', () => {})
     .on('error', err => {
-      console.error('Error streaming audio:', err);
+      console.error('Error streaming Drive file:', err);
+    })
+    .pipe(res);
+}
+
+async function exportGoogleWorkspaceFile(fileId, exportMimeType, res) {
+  assertDrive();
+  const metadata = await withDriveRetry(() => drive.files.get({
+    fileId,
+    fields: 'id, name, mimeType',
+  }));
+
+  const response = await withDriveRetry(() => drive.files.export(
+    { fileId, mimeType: exportMimeType },
+    { responseType: 'stream' }
+  ));
+
+  const extension = exportMimeType === 'application/pdf' ? '.pdf' : '.txt';
+  const baseName = safeHeaderFileName(metadata.data.name).replace(/\.[^/.]+$/, '');
+  res.setHeader('Content-Type', exportMimeType);
+  res.setHeader('Content-Disposition', `inline; filename="${baseName}${extension}"`);
+  response.data
+    .on('end', () => {})
+    .on('error', err => {
+      console.error('Error exporting Drive file:', err);
     })
     .pipe(res);
 }
 
 module.exports = {
+  classifySubmissionFile,
+  exportGoogleWorkspaceFile,
   getAudioFilesForFolders,
   getChildFolders,
   getDayFolders,
   getDayFoldersForStudents,
+  getSubmissionFilesForFolders,
   getStudentFolders,
   scanDaysFromDrive,
+  streamDriveFile,
   streamAudio,
   toAudioAnswers,
+  toSubmissionItem,
+  toSubmissionItems,
 };

@@ -1,12 +1,12 @@
 const { normalizeDays } = require('../utils/days');
 const {
-  getAudioFilesForFolders,
   getChildFolders,
   getDayFolders,
   getDayFoldersForStudents,
+  getSubmissionFilesForFolders,
   getStudentFolders,
   scanDaysFromDrive,
-  toAudioAnswers,
+  toSubmissionItems,
 } = require('./driveService');
 const {
   readDayFoldersMemoryCache,
@@ -33,15 +33,17 @@ async function scanDaysForClass(classId, classConfig) {
 async function getStudentFirstSubmissions(classConfig, day) {
   const students = await getStudentFolders(classConfig.folderId);
   const dayFoldersByStudentId = await getDayFoldersForStudents(students, day);
-  const filesByFolderId = await getAudioFilesForFolders([...dayFoldersByStudentId.values()]);
+  const filesByFolderId = await getSubmissionFilesForFolders([...dayFoldersByStudentId.values()]);
 
   return students.map(student => {
     const dayFolder = dayFoldersByStudentId.get(student.id);
     const files = dayFolder ? (filesByFolderId.get(dayFolder.id) || []) : [];
+    const submissionFiles = toSubmissionItems(files);
     return {
       id: student.id,
       name: student.name,
-      answers: toAudioAnswers(files),
+      answers: submissionFiles,
+      submissionFiles,
     };
   });
 }
@@ -52,13 +54,17 @@ async function getDayFirstSubmissions(classId, classConfig, day) {
   if (!dayFolder) return [];
 
   const students = await getChildFolders(dayFolder.id);
-  const filesByFolderId = await getAudioFilesForFolders(students);
+  const filesByFolderId = await getSubmissionFilesForFolders(students);
 
-  return students.map(student => ({
-    id: student.id,
-    name: student.name,
-    answers: toAudioAnswers(filesByFolderId.get(student.id) || []),
-  }));
+  return students.map(student => {
+    const submissionFiles = toSubmissionItems(filesByFolderId.get(student.id) || []);
+    return {
+      id: student.id,
+      name: student.name,
+      answers: submissionFiles,
+      submissionFiles,
+    };
+  });
 }
 
 async function getDriveSubmissions(classId, classConfig, day) {

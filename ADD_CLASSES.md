@@ -1,13 +1,13 @@
 # How to Add a New Class
 
-This app now uses Supabase Postgres as the metadata cache. Google Drive still stores the actual audio files.
+This app now uses Supabase Postgres as the metadata cache. Google Drive still stores the actual homework files.
 
 Adding a class means:
 
 1. Give the Google service account access to the Drive folder.
 2. Add the class to Supabase.
 3. Add a fallback entry in the code.
-4. Run a sync so Supabase has students/days/audio metadata.
+4. Run a sync so Supabase has students/days/submission-file metadata.
 
 ---
 
@@ -28,7 +28,7 @@ Expected `student-first` structure:
 <Class Root Folder>
   <Student Folder>
     <Day Folder>
-      audio files
+      audio, image, document, PDF, or other submission files
 ```
 
 Nested folders inside a day folder are also supported:
@@ -38,8 +38,10 @@ Nested folders inside a day folder are also supported:
   <Student Folder>
     <Day Folder>
       <Nested Folder>
-        audio files
+        audio, image, document, PDF, or other submission files
 ```
+
+The app classifies submissions as audio, image, document, or generic file. Writing homework can be Google Docs, `.docx`, PDFs, or image files such as `.jpg`, `.png`, and `.heic`.
 
 Supported day names include:
 
@@ -130,7 +132,7 @@ Expected response shape:
     "students": 13,
     "days": 17,
     "submissions": 120,
-    "audioFiles": 635
+    "submissionFiles": 635
   }
 }
 ```
@@ -189,7 +191,7 @@ https://grading-self.vercel.app/api/submissions?class=S137&day=1
 
 ## Refreshing A Class Later
 
-When new students, days, or audio files are added to Drive, click the reload button on the class pill.
+When new students, days, or submission files are added to Drive, click the reload button on the class pill.
 
 With Supabase configured, that button:
 
@@ -216,3 +218,19 @@ curl -X POST http://localhost:3001/api/cache/refresh \
 | Supabase `classes` table | Insert class ID, folder ID, layout |
 | `src/config/classFolders.js` | Add fallback class config |
 | Sync API | Run `/api/sync/class` once |
+
+---
+
+## Supabase Schema Reminder
+
+New installs should use the full `supabase-schema.sql`.
+
+Important tables:
+
+- `classes`
+- `students`
+- `days`
+- `submissions`
+- `submission_files`
+
+`audio_files` is retained for legacy compatibility, but current sync writes generic file metadata into `submission_files`.

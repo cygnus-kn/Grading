@@ -1,6 +1,6 @@
 # Grading App Update
 
-Last updated: May 9, 2026
+Last updated: May 12, 2026
 
 ## Current App Summary
 
@@ -10,8 +10,10 @@ This project is an Express + static frontend grading workspace.
 - Backend logic lives in `src/`.
 - `public/index.html`, `public/app.js`, and `public/style.css` serve the grading UI.
 - Supabase Postgres stores Google Drive metadata so day/submission pages load quickly.
-- Google Drive still stores the actual audio files.
-- `/api/audio/:fileId` streams audio from Google Drive through the server.
+- Google Drive still stores the actual homework files.
+- Submission files can be audio, images, Google Docs, `.docx`, PDFs, or other Drive files.
+- `/api/audio/:fileId` remains for compatibility, and `/api/files/:fileId/content` streams generic Drive files.
+- `/api/files/:fileId/export?format=pdf` exports Google Workspace documents for preview.
 
 Current active class:
 
@@ -48,7 +50,7 @@ Responsibilities:
 - `src/config/googleDrive.js`: Google Drive auth using `GOOGLE_CREDENTIALS` or local `credentials.json`.
 - `src/config/supabase.js`: Supabase client using `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 - `src/routes/apiRoutes.js`: API endpoints.
-- `src/services/driveService.js`: Drive folder/file scanning, recursive day-folder audio discovery, and audio streaming.
+- `src/services/driveService.js`: Drive folder/file scanning, recursive day-folder submission discovery, file classification, file streaming, and Google Docs export.
 - `src/services/supabaseMetadataService.js`: Supabase reads and Drive-to-Supabase sync.
 - `src/services/cacheService.js`: local fallback file/memory cache.
 - `src/services/submissionsService.js`: fallback Drive submission assembly.
@@ -63,10 +65,12 @@ Normal day/submission loading:
 Browser -> Express API -> Supabase metadata -> render table
 ```
 
-Audio playback:
+Audio playback / writing preview:
 
 ```text
 Browser -> /api/audio/:fileId -> Google Drive stream
+Browser -> /api/files/:fileId/content -> Google Drive stream
+Browser -> /api/files/:fileId/export?format=pdf -> Google Docs PDF export
 ```
 
 Refresh/sync:
@@ -75,15 +79,15 @@ Refresh/sync:
 Class reload button -> Express API -> scan Google Drive -> upsert Supabase metadata
 ```
 
-This avoids scanning Drive on every day click. Drive is now used only for sync and audio streaming.
+This avoids scanning Drive on every day click after Supabase is synced. Drive is now used for sync, file streaming, and document export.
 
-Audio discovery during sync searches recursively inside each day folder, so this layout is supported:
+Submission discovery during sync/Drive fallback searches recursively inside each day folder, so this layout is supported:
 
 ```text
 Student Folder
   Day 1
     Nested Folder
-      audio files
+      audio, image, doc, PDF, or other submission files
 ```
 
 ---
@@ -121,18 +125,20 @@ Tables:
 - `days`
 - `submissions`
 - `audio_files`
+- `submission_files`
 
-Synced metadata currently contains:
+`audio_files` is retained for legacy compatibility. New submission metadata is stored in `submission_files`.
 
-- 13 students
-- 17 days
-- 120 submissions
-- 762 audio file metadata rows
-
-Verified Day 17:
+Current metadata notes:
 
 - 13 students
-- 65 audio files
+- 18 days observed locally
+- submission files now include writing documents as well as audio
+
+Verified locally on May 12, 2026:
+
+- Day 18 returns 13 students and writing document submissions.
+- Google Docs export endpoint returned `200 application/pdf`.
 
 Verified Day 1 after recursive audio discovery:
 
@@ -151,8 +157,8 @@ Verified Day 1 after recursive audio discovery:
   - Reads day metadata from Supabase.
   - Falls back to Drive scan if Supabase fails.
 
-- `GET /api/submissions?class=S136&day=17`
-  - Reads students/submissions/audio metadata from Supabase.
+- `GET /api/submissions?class=S136&day=18`
+  - Reads students/submissions/submission-file metadata from Supabase.
   - Falls back to Drive scan if Supabase fails.
 
 - `POST /api/cache/refresh`
@@ -164,7 +170,13 @@ Verified Day 1 after recursive audio discovery:
   - Body: `{ "class": "S136" }`
 
 - `GET /api/audio/:fileId`
-  - Streams actual audio from Google Drive.
+  - Streams actual audio from Google Drive. Kept for compatibility.
+
+- `GET /api/files/:fileId/content`
+  - Streams a generic Drive file through the server.
+
+- `GET /api/files/:fileId/export?format=pdf`
+  - Exports Google Workspace files, currently PDF or text, through the server.
 
 - `POST /api/feedback`
   - Still mocked.
@@ -178,6 +190,12 @@ Verified Day 1 after recursive audio discovery:
 - Browser localStorage still caches day/submission responses for quick revisits.
 - The class reload button clears browser day/submission cache for that class after sync.
 - A browser-tab SVG favicon lives at `public/favicon.svg`.
+- The table column formerly named `Audio` is now `Submission`.
+- The Name column shows file names without extensions and is display-only.
+- File-type icons appear in the Name column.
+- The Submission column renders an audio player or Preview button plus a separate square Google Drive folder button.
+- Missing homework rows render blank Name, Submission, Drive-folder, and Comments boxes to preserve the table grid.
+- Preview supports audio, images, PDFs, Google Docs exported as PDF, and Drive preview/fallback links.
 
 ---
 
@@ -191,8 +209,8 @@ https://grading-self.vercel.app/
 
 After Vercel env vars were added and redeployed:
 
-- `/api/classes` returns `S136` with days `1-17`.
-- `/api/submissions?class=S136&day=17` returns 13 students and 65 audio files.
+- `/api/classes` should return `S136`.
+- `/api/submissions?class=S136&day=18` should return 13 students and any submission files for Day 18 after deploy/sync.
 
 Vercel must have:
 
@@ -209,9 +227,10 @@ If Vercel returns `days: []` from `/api/classes`, redeploy after checking Supaba
 - Feedback writing is still mocked in `/api/feedback`.
 - Audio streaming does not implement byte-range forwarding yet, so seeking into unloaded audio may be limited.
 - The Supabase sync currently supports the `student-first` layout.
-- There are no automated tests yet.
+- Automated tests currently cover day-folder parsing only.
 - Sync can still be slow because it scans Drive, but normal day clicks are fast because they read Supabase.
-- Recursive audio discovery makes sync heavier, but it handles student-created nested folders inside day folders.
+- Recursive submission discovery makes sync heavier, but it handles student-created nested folders inside day folders.
+- HEIC files are classified as images, but browser-native preview support depends on the browser. The UI falls back to Drive/open links where needed.
 
 ---
 
@@ -221,4 +240,5 @@ If Vercel returns `days: []` from `/api/classes`, redeploy after checking Supaba
 2. Add byte-range support to `/api/audio/:fileId`.
 3. Add sync status and `last_synced_at` display in the UI.
 4. Add a small admin-only sync endpoint guard before adding more users.
-5. Add backend tests for Supabase reads, Drive fallback, and sync logic.
+5. Add backend tests for Supabase reads, Drive fallback, file classification, and sync logic.
+6. Add OCR/text extraction for writing submissions if grading needs searchable text.

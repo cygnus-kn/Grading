@@ -1,7 +1,7 @@
 const express = require('express');
 const { CLASS_FOLDERS, getClassConfig } = require('../config/classFolders');
 const { supabase } = require('../config/supabase');
-const { streamAudio } = require('../services/driveService');
+const { exportGoogleWorkspaceFile, streamAudio, streamDriveFile } = require('../services/driveService');
 const {
   clearDayFoldersMemoryCache,
   clearSubmissionsCacheForClass,
@@ -142,8 +142,8 @@ router.get('/submissions', async (req, res) => {
   if (supabase) {
     try {
       const results = await getSubmissionsFromSupabase(classId, day);
-      const audioFileCount = results.reduce((total, student) => total + student.answers.length, 0);
-      console.log(`[supabase] ${classId} day ${day}: ${results.length} students, ${audioFileCount} audio files`);
+      const submissionFileCount = results.reduce((total, student) => total + student.answers.length, 0);
+      console.log(`[supabase] ${classId} day ${day}: ${results.length} students, ${submissionFileCount} submission files`);
       return res.json(results);
     } catch (error) {
       console.error('Supabase submissions error; falling back to Drive scan:', error);
@@ -164,8 +164,8 @@ router.get('/submissions', async (req, res) => {
 
   try {
     const results = await getDriveSubmissions(classId, classConfig, day);
-    const audioFileCount = results.reduce((total, student) => total + student.answers.length, 0);
-    console.log(`[submissions] ${classId} day ${day}: ${results.length} students, ${audioFileCount} audio files`);
+    const submissionFileCount = results.reduce((total, student) => total + student.answers.length, 0);
+    console.log(`[submissions] ${classId} day ${day}: ${results.length} students, ${submissionFileCount} submission files`);
 
     writeSubmissionsCache(classId, day, results);
     res.json(results);
@@ -181,6 +181,35 @@ router.get('/audio/:fileId', async (req, res) => {
   } catch (error) {
     console.error('Audio Proxy Error:', error);
     res.status(500).send('Error fetching audio');
+  }
+});
+
+router.get('/files/:fileId/content', async (req, res) => {
+  try {
+    await streamDriveFile(req.params.fileId, res);
+  } catch (error) {
+    console.error('Drive File Proxy Error:', error);
+    res.status(500).send('Error fetching file');
+  }
+});
+
+router.get('/files/:fileId/export', async (req, res) => {
+  const format = String(req.query.format || 'pdf').toLowerCase();
+  const exportMimeTypes = {
+    pdf: 'application/pdf',
+    text: 'text/plain',
+  };
+
+  const exportMimeType = exportMimeTypes[format];
+  if (!exportMimeType) {
+    return res.status(400).json({ error: 'Unsupported export format' });
+  }
+
+  try {
+    await exportGoogleWorkspaceFile(req.params.fileId, exportMimeType, res);
+  } catch (error) {
+    console.error('Drive File Export Error:', error);
+    res.status(500).send('Error exporting file');
   }
 });
 
