@@ -103,7 +103,9 @@ from audio_files
 on conflict (id) do nothing;
 
 insert into classes (id, drive_folder_id, layout)
-values ('S136', '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r', 'student-first')
+values
+  ('S133', '1A-ADtlofvngCOB126WYVBmfW9pexbyUn', 'student-first'),
+  ('S136', '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r', 'student-first')
 on conflict (id) do update set
   drive_folder_id = excluded.drive_folder_id,
   layout = excluded.layout;

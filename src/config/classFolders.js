@@ -1,4 +1,8 @@
 const CLASS_FOLDERS = {
+  S133: {
+    folderId: '1A-ADtlofvngCOB126WYVBmfW9pexbyUn',
+    layout: 'student-first',
+  },
   S136: {
     folderId: '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r',
     layout: 'student-first',
