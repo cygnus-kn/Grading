@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.querySelector('main');
     const APP_POSITION_KEY = 'gradingAppPosition';
     const SUBMISSIONS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
-    const SUBMISSIONS_CACHE_PREFIX = 'gradingSubmissionsV3_';
+    const SUBMISSIONS_CACHE_PREFIX = 'gradingSubmissionsV4_';
     const GOOGLE_DOC_MIME_TYPE = 'application/vnd.google-apps.document';
 
     // ============================
@@ -385,6 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function clearSubmissionCacheForClass(className) {
         const prefixes = [
             `${SUBMISSIONS_CACHE_PREFIX}${className}_`,
+            `gradingSubmissionsV3_${className}_`,
             `gradingSubmissionsV2_${className}_`,
             `gradingSubmissions_${className}_`
         ];

@@ -9,6 +9,8 @@ const {
 } = require('./driveService');
 const { clearSubmissionsCacheForClass } = require('./cacheService');
 
+const DELETE_BATCH_SIZE = 500;
+
 async function getSupabaseClassConfig(classId) {
   if (!supabase) return null;
 
@@ -43,6 +45,43 @@ async function upsertRows(table, rows, options = {}) {
 
   if (error) throw error;
   return data || [];
+}
+
+async function deleteClassRowsByIds(client, table, classId, idColumn, ids) {
+  const uniqueIds = [...new Set(ids)].filter(id => id !== null && id !== undefined);
+  if (uniqueIds.length === 0) return 0;
+
+  for (let i = 0; i < uniqueIds.length; i += DELETE_BATCH_SIZE) {
+    const batch = uniqueIds.slice(i, i + DELETE_BATCH_SIZE);
+    const { error } = await client
+      .from(table)
+      .delete()
+      .eq('class_id', classId)
+      .in(idColumn, batch);
+
+    if (error) throw error;
+  }
+
+  return uniqueIds.length;
+}
+
+async function getClassRows(client, table, columns, classId) {
+  const { data, error } = await client
+    .from(table)
+    .select(columns)
+    .eq('class_id', classId);
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function pruneClassRows(client, table, columns, classId, isCurrent, idColumn = 'id') {
+  const existingRows = await getClassRows(client, table, columns, classId);
+  const staleIds = existingRows
+    .filter(row => !isCurrent(row))
+    .map(row => row[idColumn]);
+
+  return deleteClassRowsByIds(client, table, classId, idColumn, staleIds);
 }
 
 async function getClassesFromSupabase() {
@@ -153,6 +192,7 @@ async function syncStudentFirstClass(classId, classConfig) {
   const students = await getStudentFolders(classConfig.folderId);
   const dayFolders = await getDayFoldersForSync(students);
   const filesByFolderId = await getSubmissionFilesForFolders(dayFolders);
+  const currentStudentIds = new Set(students.map(student => student.id));
 
   await upsertRows('students', students.map(student => ({
     id: student.id,
@@ -164,6 +204,7 @@ async function syncStudentFirstClass(classId, classConfig) {
 
   const uniqueDayNumbers = [...new Set(dayFolders.map(folder => folder.day))]
     .sort((a, b) => b - a);
+  const currentDayNumbers = new Set(uniqueDayNumbers);
 
   await upsertRows('days', uniqueDayNumbers.map(dayNumber => ({
     class_id: classId,
@@ -214,8 +255,42 @@ async function syncStudentFirstClass(classId, classConfig) {
       });
     });
   });
+  const currentSubmissionFileIds = new Set(submissionFileRows.map(file => file.id));
 
   await upsertRows('submission_files', submissionFileRows, { onConflict: 'id' });
+
+  const currentSubmissionKeys = new Set(submissionRows.map(submission => (
+    `${submission.student_id}:${submission.day_number}`
+  )));
+
+  const deletedStudents = await pruneClassRows(
+    client,
+    'students',
+    'id',
+    classId,
+    row => currentStudentIds.has(row.id)
+  );
+  const deletedDays = await pruneClassRows(
+    client,
+    'days',
+    'id, day_number',
+    classId,
+    row => currentDayNumbers.has(row.day_number)
+  );
+  const deletedSubmissions = await pruneClassRows(
+    client,
+    'submissions',
+    'id, student_id, day_number',
+    classId,
+    row => currentSubmissionKeys.has(`${row.student_id}:${row.day_number}`)
+  );
+  const deletedSubmissionFiles = await pruneClassRows(
+    client,
+    'submission_files',
+    'id',
+    classId,
+    row => currentSubmissionFileIds.has(row.id)
+  );
 
   const { error } = await client
     .from('classes')
@@ -229,6 +304,10 @@ async function syncStudentFirstClass(classId, classConfig) {
     days: uniqueDayNumbers.length,
     submissions: syncedSubmissions.length,
     submissionFiles: submissionFileRows.length,
+    deletedStudents,
+    deletedDays,
+    deletedSubmissions,
+    deletedSubmissionFiles,
   };
 }
 
