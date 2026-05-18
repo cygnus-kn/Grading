@@ -226,7 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.selectHomework = (className, day) => {
-        openClassTab(className, day);
+        openClassTab(className, day, { forceRefreshDay: true });
     };
 
     window.refreshClassDays = async (event, className) => {
@@ -526,6 +526,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const expandedStudentRows = new Set();
     let latestSubmissionsRequestId = 0;
     let latestClassOpenRequestId = 0;
+    let submissionsFetchController = null;
     let didRestoreScrollPosition = false;
 
     function getExpandedClasses() {
@@ -595,10 +596,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function selectDay(day) {
+    function selectDay(day, { forceRefresh = false } = {}) {
         daySelect.value = day;
         dayBadge.textContent = getDayLabel(activeTabId, day);
-        daySelect.dispatchEvent(new Event('change'));
+        daySelect.dispatchEvent(new CustomEvent('change', {
+            detail: { forceRefresh }
+        }));
     }
 
     function renderDayDropdown() {
@@ -731,7 +734,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function openClassTab(className, day) {
+    function openClassTab(className, day, { forceRefreshDay = false } = {}) {
         const requestId = ++latestClassOpenRequestId;
         if (!openTabs.some(tab => tab.id === className)) {
             openTabs.push({ id: className, label: className });
@@ -747,7 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const daysPromise = loadDaysForClass(className);
 
         if (day) {
-            selectDay(day);
+            selectDay(day, { forceRefresh: forceRefreshDay });
         } else if (selectedDay) {
             selectDay(selectedDay);
         } else {
@@ -840,6 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ============================
     daySelect.addEventListener('change', async (e) => {
         const selectedDay = e.target.value;
+        const forceRefresh = Boolean(e.detail?.forceRefresh);
         if (!selectedDay) return;
         if (!activeTabId) {
             showEmptyWorkspace();
@@ -850,6 +854,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const classId = activeTabId;
         selectedDaysByClass[classId] = String(selectedDay);
         const requestId = ++latestSubmissionsRequestId;
+        if (submissionsFetchController) {
+            submissionsFetchController.abort();
+            submissionsFetchController = null;
+        }
         const isCurrentRequest = () => (
             requestId === latestSubmissionsRequestId &&
             activeTabId === classId &&
@@ -875,7 +883,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loadingIndicator.classList.add('hidden');
             savePosition();
 
-            if (cachedEntry.isFresh) return;
+            if (cachedEntry.isFresh && !forceRefresh) return;
         } else {
             // No cache: show loader and clear list
             loadingIndicator.classList.remove('hidden');
@@ -883,8 +891,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // --- 2. Fetch Fresh Data in Background ---
+        const fetchController = new AbortController();
+        submissionsFetchController = fetchController;
         try {
-            const response = await fetch(`/api/submissions?class=${encodeURIComponent(classId)}&day=${selectedDay}`);
+            const response = await fetch(`/api/submissions?class=${encodeURIComponent(classId)}&day=${selectedDay}`, {
+                signal: fetchController.signal
+            });
+            if (!response.ok) throw new Error(`Submissions request failed with ${response.status}`);
             const data = await response.json();
             if (!isCurrentRequest()) return;
             
@@ -901,9 +914,14 @@ document.addEventListener('DOMContentLoaded', () => {
             renderGradingTable(data, selectedDay);
             restoreMainScrollPosition();
         } catch (error) {
+            if (error.name === 'AbortError') return;
             if (!isCurrentRequest()) return;
             console.error('Error:', error);
             loadingIndicator.classList.add('hidden');
+        } finally {
+            if (submissionsFetchController === fetchController) {
+                submissionsFetchController = null;
+            }
         }
     });
     // ============================
@@ -1505,7 +1523,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dayDropdown.addEventListener('click', (e) => {
         const item = e.target.closest('.dropdown-item');
         if (!item) return;
-        selectDay(item.dataset.day);
+        selectDay(item.dataset.day, { forceRefresh: true });
         closeDayDropdown();
     });
 
