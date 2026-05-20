@@ -7,6 +7,10 @@ const CLASS_FOLDERS = {
     folderId: '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r',
     layout: 'student-first',
   },
+  S141: {
+    folderId: '1ozv7HFROs1sjrOFOS8JefqN12lgJCVpJ',
+    layout: 'student-first',
+  },
 };
 
 function getClassConfig(classId) {
