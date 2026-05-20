@@ -212,13 +212,21 @@ async function syncStudentFirstClass(classId, classConfig) {
     updated_at: now,
   })), { onConflict: 'class_id,day_number' });
 
-  const submissionRows = dayFolders.map(folder => ({
-    class_id: classId,
-    student_id: folder.studentId,
-    day_number: folder.day,
-    drive_folder_id: folder.id,
-    updated_at: now,
-  }));
+  // Deduplicate by (student_id, day_number) — when a student has multiple
+  // folders that parse to the same day (e.g. "Day 18.05.26" and "Day 18_11.05.26"),
+  // keep only the last one to avoid Postgres "cannot affect row a second time" error.
+  const submissionRowsByKey = new Map();
+  dayFolders.forEach(folder => {
+    const key = `${folder.studentId}:${folder.day}`;
+    submissionRowsByKey.set(key, {
+      class_id: classId,
+      student_id: folder.studentId,
+      day_number: folder.day,
+      drive_folder_id: folder.id,
+      updated_at: now,
+    });
+  });
+  const submissionRows = [...submissionRowsByKey.values()];
 
   const syncedSubmissions = await upsertRows('submissions', submissionRows, {
     onConflict: 'class_id,student_id,day_number',
@@ -229,15 +237,16 @@ async function syncStudentFirstClass(classId, classConfig) {
     submission.id,
   ]));
 
-  const submissionFileRows = [];
+  const submissionFileRowsById = new Map();
   dayFolders.forEach(folder => {
     const submissionId = submissionIdByKey.get(`${folder.studentId}:${folder.day}`);
     if (!submissionId) return;
 
     const files = filesByFolderId.get(folder.id) || [];
     files.forEach(file => {
+      if (submissionFileRowsById.has(file.id)) return;
       const submissionItem = toSubmissionItem(file);
-      submissionFileRows.push({
+      submissionFileRowsById.set(file.id, {
         id: file.id,
         submission_id: submissionId,
         class_id: classId,
@@ -255,6 +264,7 @@ async function syncStudentFirstClass(classId, classConfig) {
       });
     });
   });
+  const submissionFileRows = [...submissionFileRowsById.values()];
   const currentSubmissionFileIds = new Set(submissionFileRows.map(file => file.id));
 
   await upsertRows('submission_files', submissionFileRows, { onConflict: 'id' });
