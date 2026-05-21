@@ -731,6 +731,9 @@ header {
 }
 
 .day-selector-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-shrink: 0;
 }
 
@@ -786,6 +789,73 @@ header {
     border-color: var(--control-border-hover);
     color: var(--color-text-primary);
     box-shadow: var(--control-active-shadow);
+}
+
+.day-refresh-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-height);
+    height: var(--control-height);
+    flex: 0 0 var(--control-height);
+    color: var(--color-text-secondary);
+    background: var(--control-bg);
+    border: 1px solid var(--control-border);
+    border-radius: var(--control-radius);
+    box-shadow: var(--control-shadow);
+    cursor: pointer;
+    transition: all var(--transition-smooth);
+}
+
+.day-refresh-btn:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    background: var(--control-bg-hover);
+    border-color: var(--control-border-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--control-active-shadow);
+}
+
+.day-refresh-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.day-refresh-btn:disabled {
+    cursor: default;
+    opacity: 0.48;
+}
+
+.day-refresh-icon {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.day-refresh-spinner {
+    display: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 999px;
+}
+
+.day-refresh-btn.is-loading .day-refresh-icon {
+    display: none;
+}
+
+.day-refresh-btn.is-loading .day-refresh-spinner {
+    display: block;
+    animation: class-count-spin 720ms linear infinite;
+}
+
+.day-refresh-btn.is-error {
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.34);
 }
 
 .dropdown-menu {

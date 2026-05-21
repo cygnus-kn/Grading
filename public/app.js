@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const daySelect = document.getElementById('day-select');
     const dayBadge = document.getElementById('dayBadge');
+    const dayRefreshBtn = document.getElementById('dayRefreshBtn');
     const dayDropdown = document.getElementById('dayDropdown');
     const submissionsList = document.getElementById('submissions-list');
     const loadingIndicator = document.getElementById('loading-indicator');
@@ -363,6 +364,79 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function clearSubmissionCacheForDay(className, day) {
+        [
+            SUBMISSIONS_CACHE_PREFIX,
+            'gradingSubmissionsV3_',
+            'gradingSubmissionsV2_',
+            'gradingSubmissions_'
+        ].forEach(prefix => {
+            localStorage.removeItem(`${prefix}${className}_${day}`);
+        });
+    }
+
+    function setDayRefreshState(state) {
+        if (!dayRefreshBtn) return;
+        const isLoading = state === 'loading';
+        const isError = state === 'error';
+        const hasDay = Boolean(activeTabId && daySelect.value);
+
+        dayRefreshBtn.classList.toggle('is-loading', isLoading);
+        dayRefreshBtn.classList.toggle('is-error', isError);
+        dayRefreshBtn.disabled = isLoading || !hasDay;
+        dayRefreshBtn.setAttribute(
+            'aria-label',
+            isLoading
+                ? 'Refreshing selected day'
+                : isError
+                    ? 'Selected day refresh failed'
+                    : 'Refresh selected day'
+        );
+    }
+
+    async function refreshCurrentDay() {
+        const className = activeTabId;
+        const day = daySelect.value;
+        if (!className || !day) return;
+
+        setDayRefreshState('loading');
+
+        try {
+            const res = await fetch('/api/sync/day', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ class: className, day })
+            });
+            if (!res.ok) throw new Error(`Day refresh failed with ${res.status}`);
+
+            const result = await res.json();
+            (result.clearBrowserKeys || []).forEach(key => localStorage.removeItem(key));
+            clearSubmissionCacheForDay(className, day);
+
+            const classData = CLASSES_DATA[className];
+            if (classData) {
+                classData.loaded = false;
+                classData.days = [];
+            }
+            await loadDaysForClass(className);
+
+            const nextDay = isKnownDay(className, day) ? String(day) : getLatestDayValue(className);
+            updateDayOptions(className, nextDay);
+            updateSidebarSelection(className, nextDay);
+            if (nextDay) {
+                selectDay(nextDay, { forceRefresh: true });
+            } else {
+                showEmptyWorkspace();
+            }
+
+            setDayRefreshState('idle');
+        } catch (error) {
+            console.error(`Failed to refresh ${className} day ${day}:`, error);
+            setDayRefreshState('error');
+            window.setTimeout(() => setDayRefreshState('idle'), 1600);
+        }
+    }
+
     function clearBrowserCachesForClasses(classNames, clearBrowserKeys = []) {
         clearBrowserKeys.forEach(key => localStorage.removeItem(key));
         classNames.forEach(className => {
@@ -632,6 +706,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         daySelect.value = nextDay;
         dayBadge.textContent = nextDay ? getDayLabel(className, nextDay) : 'Select day';
+        setDayRefreshState('idle');
         renderDayDropdown();
     }
 
@@ -737,6 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
         daySelect.value = '';
         dayBadge.textContent = 'Select day';
         dayDropdown.innerHTML = '';
+        setDayRefreshState('idle');
     }
 
     function renderGradingSkeleton(rowCount = 6) {
@@ -1574,6 +1650,11 @@ document.addEventListener('DOMContentLoaded', () => {
     dayBadge.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleDayDropdown();
+    });
+
+    dayRefreshBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        refreshCurrentDay();
     });
 
     dayDropdown.addEventListener('click', (e) => {

@@ -3,6 +3,7 @@ const { requireSupabase, supabase } = require('../config/supabase');
 const { toQuestionLabel, parseDayNumber } = require('../utils/days');
 const {
   getChildFolders,
+  getDayFoldersForStudents,
   getSubmissionFilesForFolders,
   getStudentFolders,
   toSubmissionItem,
@@ -77,6 +78,26 @@ async function getClassRows(client, table, columns, classId) {
 
 async function pruneClassRows(client, table, columns, classId, isCurrent, idColumn = 'id') {
   const existingRows = await getClassRows(client, table, columns, classId);
+  const staleIds = existingRows
+    .filter(row => !isCurrent(row))
+    .map(row => row[idColumn]);
+
+  return deleteClassRowsByIds(client, table, classId, idColumn, staleIds);
+}
+
+async function getClassDayRows(client, table, columns, classId, dayNumber) {
+  const { data, error } = await client
+    .from(table)
+    .select(columns)
+    .eq('class_id', classId)
+    .eq('day_number', dayNumber);
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function pruneClassDayRows(client, table, columns, classId, dayNumber, isCurrent, idColumn = 'id') {
+  const existingRows = await getClassDayRows(client, table, columns, classId, dayNumber);
   const staleIds = existingRows
     .filter(row => !isCurrent(row))
     .map(row => row[idColumn]);
@@ -336,6 +357,142 @@ async function syncStudentFirstClass(classId, classConfig) {
   };
 }
 
+async function syncStudentFirstClassDay(classId, classConfig, day) {
+  const client = requireSupabase();
+  const now = new Date().toISOString();
+  const dayNumber = Number(day);
+  if (!Number.isInteger(dayNumber) || dayNumber < 1) {
+    throw new Error(`Invalid day for sync: ${day}`);
+  }
+
+  const students = await getStudentFolders(classConfig.folderId);
+  const dayFoldersByStudentId = await getDayFoldersForStudents(students, dayNumber);
+  const dayFolders = [...dayFoldersByStudentId.entries()].map(([studentId, folder]) => ({
+    ...folder,
+    studentId,
+    day: dayNumber,
+  }));
+  const filesByFolderId = await getSubmissionFilesForFolders(dayFolders);
+
+  await upsertRows('students', students.map(student => ({
+    id: student.id,
+    class_id: classId,
+    drive_folder_id: student.id,
+    name: student.name,
+    updated_at: now,
+  })), { onConflict: 'id' });
+
+  if (dayFolders.length > 0) {
+    await upsertRows('days', [{
+      class_id: classId,
+      day_number: dayNumber,
+      updated_at: now,
+    }], { onConflict: 'class_id,day_number' });
+  }
+
+  const submissionRows = dayFolders.map(folder => ({
+    class_id: classId,
+    student_id: folder.studentId,
+    day_number: dayNumber,
+    drive_folder_id: folder.id,
+    updated_at: now,
+  }));
+
+  const syncedSubmissions = await upsertRows('submissions', submissionRows, {
+    onConflict: 'class_id,student_id,day_number',
+  });
+
+  const submissionIdByKey = new Map(syncedSubmissions.map(submission => [
+    `${submission.student_id}:${submission.day_number}`,
+    submission.id,
+  ]));
+
+  const submissionFileRowsById = new Map();
+  dayFolders.forEach(folder => {
+    const submissionId = submissionIdByKey.get(`${folder.studentId}:${dayNumber}`);
+    if (!submissionId) return;
+
+    const files = filesByFolderId.get(folder.id) || [];
+    files.forEach(file => {
+      if (submissionFileRowsById.has(file.id)) return;
+      const submissionItem = toSubmissionItem(file);
+      submissionFileRowsById.set(file.id, {
+        id: file.id,
+        submission_id: submissionId,
+        class_id: classId,
+        student_id: folder.studentId,
+        day_number: dayNumber,
+        drive_file_id: file.id,
+        parent_folder_id: file.parents?.[0] || folder.id,
+        file_name: file.name,
+        question_label: toQuestionLabel(file.name),
+        file_kind: submissionItem.kind,
+        mime_type: file.mimeType || null,
+        web_view_link: file.webViewLink || null,
+        thumbnail_link: file.thumbnailLink || null,
+        updated_at: now,
+      });
+    });
+  });
+
+  const submissionFileRows = [...submissionFileRowsById.values()];
+  const currentSubmissionKeys = new Set(submissionRows.map(submission => (
+    `${submission.student_id}:${submission.day_number}`
+  )));
+  const currentSubmissionFileIds = new Set(submissionFileRows.map(file => file.id));
+
+  await upsertRows('submission_files', submissionFileRows, { onConflict: 'id' });
+
+  const deletedSubmissionFiles = await pruneClassDayRows(
+    client,
+    'submission_files',
+    'id',
+    classId,
+    dayNumber,
+    row => currentSubmissionFileIds.has(row.id)
+  );
+  const deletedSubmissions = await pruneClassDayRows(
+    client,
+    'submissions',
+    'id, student_id, day_number',
+    classId,
+    dayNumber,
+    row => currentSubmissionKeys.has(`${row.student_id}:${row.day_number}`)
+  );
+
+  let deletedDays = 0;
+  if (dayFolders.length === 0) {
+    const { data: deletedDayRows, error } = await client
+      .from('days')
+      .delete()
+      .eq('class_id', classId)
+      .eq('day_number', dayNumber)
+      .select('id');
+
+    if (error) throw error;
+    deletedDays = deletedDayRows?.length || 0;
+  }
+
+  const { error } = await client
+    .from('classes')
+    .update({ last_synced_at: now })
+    .eq('id', classId);
+
+  if (error) throw error;
+
+  clearSubmissionsCacheForClass(classId);
+
+  return {
+    students: students.length,
+    days: dayFolders.length > 0 ? 1 : 0,
+    submissions: syncedSubmissions.length,
+    submissionFiles: submissionFileRows.length,
+    deletedDays,
+    deletedSubmissions,
+    deletedSubmissionFiles,
+  };
+}
+
 async function syncClassToSupabase(classId) {
   const classConfig = await getClassConfigForSync(classId);
   if (!classConfig) throw new Error(`No class configured for ${classId}`);
@@ -355,10 +512,28 @@ async function syncClassToSupabase(classId) {
   return result;
 }
 
+async function syncClassDayToSupabase(classId, day) {
+  const classConfig = await getClassConfigForSync(classId);
+  if (!classConfig) throw new Error(`No class configured for ${classId}`);
+
+  await upsertRows('classes', [{
+    id: classId,
+    drive_folder_id: classConfig.folderId,
+    layout: classConfig.layout || 'student-first',
+  }], { onConflict: 'id' });
+
+  if ((classConfig.layout || 'student-first') !== 'student-first') {
+    throw new Error(`Day sync currently supports student-first classes only (${classId})`);
+  }
+
+  return syncStudentFirstClassDay(classId, classConfig, day);
+}
+
 module.exports = {
   getClassIdsFromSupabase,
   getClassesFromSupabase,
   getDaysFromSupabase,
   getSubmissionsFromSupabase,
+  syncClassDayToSupabase,
   syncClassToSupabase,
 };

@@ -19,6 +19,7 @@ const {
   getClassesFromSupabase,
   getDaysFromSupabase,
   getSubmissionsFromSupabase,
+  syncClassDayToSupabase,
   syncClassToSupabase,
 } = require('../services/supabaseMetadataService');
 
@@ -174,6 +175,31 @@ router.post('/sync/class', async (req, res) => {
   } catch (error) {
     console.error('Supabase sync error:', error);
     res.status(500).json({ error: error.message || 'Failed to sync class' });
+  }
+});
+
+router.post('/sync/day', async (req, res) => {
+  const classId = req.body ? req.body.class : null;
+  const day = req.body ? req.body.day : null;
+  if (!classId || !day) {
+    return res.status(400).json({ error: 'Class and day are required' });
+  }
+
+  try {
+    const result = await syncClassDayToSupabase(classId, day);
+    res.json({
+      success: true,
+      class: classId,
+      day: Number(day),
+      result,
+      clearBrowserKeys: [
+        `gradingDays_${classId}`,
+        `gradingSubmissionsV4_${classId}_${day}`,
+      ],
+    });
+  } catch (error) {
+    console.error('Supabase day sync error:', error);
+    res.status(500).json({ error: error.message || 'Failed to sync day' });
   }
 });
 
