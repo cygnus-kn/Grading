@@ -15,6 +15,7 @@ const {
   scanDaysForClass,
 } = require('../services/submissionsService');
 const {
+  getClassIdsFromSupabase,
   getClassesFromSupabase,
   getDaysFromSupabase,
   getSubmissionsFromSupabase,
@@ -27,7 +28,38 @@ function getLocalClasses() {
   return Object.keys(CLASS_FOLDERS).map(id => ({
     id,
     days: readDaysFileCache(id) || [],
+    lastSyncedAt: null,
   }));
+}
+
+async function getSyncTargetClassIds(classId) {
+  if (classId) return [classId];
+  if (!supabase) return Object.keys(CLASS_FOLDERS);
+
+  const supabaseClassIds = await getClassIdsFromSupabase();
+  return [...new Set([...supabaseClassIds, ...Object.keys(CLASS_FOLDERS)])].sort();
+}
+
+async function syncClassTargets(targets) {
+  const results = {};
+
+  for (const id of targets) {
+    try {
+      console.log(`[sync] Syncing ${id} from Drive to Supabase...`);
+      const result = await syncClassToSupabase(id);
+      results[id] = result.days;
+    } catch (err) {
+      results[id] = `error: ${err.message}`;
+    }
+  }
+
+  return results;
+}
+
+function isCronAuthorized(req) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) return !process.env.VERCEL;
+  return req.get('authorization') === `Bearer ${cronSecret}`;
 }
 
 router.get('/classes', async (req, res) => {
@@ -76,20 +108,10 @@ router.get('/days', async (req, res) => {
 
 router.post('/cache/refresh', async (req, res) => {
   const classId = req.body ? req.body.class : null;
-  const targets = classId ? [classId] : Object.keys(CLASS_FOLDERS);
+  const targets = await getSyncTargetClassIds(classId);
 
   if (supabase) {
-    const results = {};
-    for (const id of targets) {
-      try {
-        console.log(`[sync] Syncing ${id} from Drive to Supabase...`);
-        const result = await syncClassToSupabase(id);
-        results[id] = result.days;
-      } catch (err) {
-        results[id] = `error: ${err.message}`;
-      }
-    }
-
+    const results = await syncClassTargets(targets);
     const clearBrowserKeys = targets.map(id => `gradingDays_${id}`);
     return res.json({ refreshed: results, clearBrowserKeys });
   }
@@ -112,6 +134,29 @@ router.post('/cache/refresh', async (req, res) => {
 
   const clearBrowserKeys = targets.map(id => `gradingDays_${id}`);
   res.json({ refreshed: results, clearBrowserKeys });
+});
+
+router.get('/cron/sync', async (req, res) => {
+  if (!isCronAuthorized(req)) {
+    return res.status(401).json({ error: 'Unauthorized cron sync' });
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Supabase is not configured' });
+  }
+
+  try {
+    const targets = await getSyncTargetClassIds();
+    const results = await syncClassTargets(targets);
+    res.json({
+      success: true,
+      syncedAt: new Date().toISOString(),
+      refreshed: results,
+    });
+  } catch (error) {
+    console.error('Cron sync error:', error);
+    res.status(500).json({ error: error.message || 'Failed to run cron sync' });
+  }
 });
 
 router.post('/sync/class', async (req, res) => {

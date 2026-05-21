@@ -28,6 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const APP_POSITION_KEY = 'gradingAppPosition';
     const SUBMISSIONS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
     const SUBMISSIONS_CACHE_PREFIX = 'gradingSubmissionsV4_';
+    const CLASS_AUTO_SYNC_KEY = 'gradingClassAutoSyncAt';
+    const CLASS_AUTO_SYNC_MIN_INTERVAL_MS = 60 * 1000;
     const GOOGLE_DOC_MIME_TYPE = 'application/vnd.google-apps.document';
 
     // ============================
@@ -77,9 +79,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const days = Array.isArray(c.days) ? c.days : [];
                 CLASSES_DATA[c.id].days = days;
                 CLASSES_DATA[c.id].loaded = days.length > 0;
+                CLASSES_DATA[c.id].lastSyncedAt = c.lastSyncedAt || null;
             });
             renderSidebar();
             restoreCurrentPosition();
+            refreshAllClassesOnLoad();
         })
         .catch(err => console.error('Error loading classes:', err));
 
@@ -235,45 +239,8 @@ document.addEventListener('DOMContentLoaded', () => {
         event.stopPropagation();
         event.preventDefault();
 
-        const classData = CLASSES_DATA[className];
-        if (!classData) return;
-
-        setClassRefreshState(className, 'loading');
-
         try {
-            const res = await fetch('/api/cache/refresh', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ class: className })
-            });
-
-            if (!res.ok) throw new Error(`Refresh failed with ${res.status}`);
-
-            const result = await res.json();
-            const refreshedCount = result?.refreshed?.[className];
-            if (typeof refreshedCount !== 'number') {
-                throw new Error(typeof refreshedCount === 'string' ? refreshedCount : 'Refresh failed');
-            }
-
-            (result.clearBrowserKeys || [`gradingDays_${className}`]).forEach(key => {
-                localStorage.removeItem(key);
-            });
-            clearSubmissionCacheForClass(className);
-
-            classData.loaded = false;
-            classData.days = [];
-            await loadDaysForClass(className);
-
-            const latestDay = getLatestDayValue(className);
-            if (activeTabId === className) {
-                const currentDay = selectedDaysByClass[className];
-                const nextDay = currentDay && isKnownDay(className, currentDay) ? currentDay : latestDay;
-                updateDayOptions(className, nextDay);
-                updateSidebarSelection(className, nextDay);
-                if (nextDay && nextDay !== currentDay) selectDay(nextDay);
-            }
-
-            setClassRefreshState(className, 'idle');
+            await refreshClasses([className]);
         } catch (err) {
             console.error(`Failed to refresh ${className}:`, err);
             setClassRefreshState(className, 'error');
@@ -394,6 +361,93 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.keys(localStorage).forEach(key => {
             if (prefixes.some(prefix => key.startsWith(prefix))) localStorage.removeItem(key);
         });
+    }
+
+    function clearBrowserCachesForClasses(classNames, clearBrowserKeys = []) {
+        clearBrowserKeys.forEach(key => localStorage.removeItem(key));
+        classNames.forEach(className => {
+            localStorage.removeItem(`gradingDays_${className}`);
+            clearSubmissionCacheForClass(className);
+            if (CLASSES_DATA[className]) {
+                CLASSES_DATA[className].loaded = false;
+                CLASSES_DATA[className].days = [];
+            }
+        });
+    }
+
+    async function refreshClasses(classNames) {
+        const targetClassNames = [...new Set(classNames)].filter(isKnownClass);
+        if (targetClassNames.length === 0) return null;
+
+        targetClassNames.forEach(className => setClassRefreshState(className, 'loading'));
+
+        const body = targetClassNames.length === 1
+            ? JSON.stringify({ class: targetClassNames[0] })
+            : undefined;
+        const res = await fetch('/api/cache/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            ...(body ? { body } : {})
+        });
+
+        if (!res.ok) throw new Error(`Refresh failed with ${res.status}`);
+
+        const result = await res.json();
+        const refreshedClassNames = [];
+        const failedClassNames = [];
+        targetClassNames.forEach(className => {
+            const refreshedCount = result?.refreshed?.[className];
+            if (typeof refreshedCount !== 'number') {
+                failedClassNames.push(className);
+                return;
+            }
+            refreshedClassNames.push(className);
+        });
+
+        if (failedClassNames.length === targetClassNames.length) {
+            const [firstFailedClassName] = failedClassNames;
+            const errorMessage = result?.refreshed?.[firstFailedClassName];
+            throw new Error(typeof errorMessage === 'string' ? errorMessage : 'Refresh failed');
+        }
+
+        clearBrowserCachesForClasses(refreshedClassNames, result.clearBrowserKeys || []);
+        await Promise.all(refreshedClassNames.map(className => loadDaysForClass(className)));
+
+        refreshedClassNames.forEach(className => setClassRefreshState(className, 'idle'));
+        failedClassNames.forEach(className => {
+            setClassRefreshState(className, 'error');
+            window.setTimeout(() => setClassRefreshState(className, 'idle'), 1600);
+        });
+
+        if (activeTabId && refreshedClassNames.includes(activeTabId)) {
+            const currentDay = selectedDaysByClass[activeTabId];
+            const latestDay = getLatestDayValue(activeTabId);
+            const nextDay = currentDay && isKnownDay(activeTabId, currentDay) ? currentDay : latestDay;
+            updateDayOptions(activeTabId, nextDay);
+            updateSidebarSelection(activeTabId, nextDay);
+            if (nextDay) selectDay(nextDay, { forceRefresh: true });
+        }
+
+        localStorage.setItem(CLASS_AUTO_SYNC_KEY, String(Date.now()));
+
+        if (failedClassNames.length > 0) {
+            console.warn('Some classes failed to refresh:', failedClassNames);
+        }
+
+        return result;
+    }
+
+    async function refreshAllClassesOnLoad() {
+        const lastSyncAt = Number(localStorage.getItem(CLASS_AUTO_SYNC_KEY) || 0);
+        if (Date.now() - lastSyncAt < CLASS_AUTO_SYNC_MIN_INTERVAL_MS) return;
+
+        const classNames = Object.keys(CLASSES_DATA);
+        try {
+            await refreshClasses(classNames);
+        } catch (error) {
+            console.error('Automatic class sync failed:', error);
+            classNames.forEach(className => setClassRefreshState(className, 'idle'));
+        }
     }
 
     function readSubmissionCache(cacheKey) {

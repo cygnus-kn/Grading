@@ -88,7 +88,7 @@ async function getClassesFromSupabase() {
   const client = requireSupabase();
   const { data: classes, error } = await client
     .from('classes')
-    .select('id')
+    .select('id, last_synced_at')
     .order('id', { ascending: true });
 
   if (error) throw error;
@@ -96,10 +96,25 @@ async function getClassesFromSupabase() {
   const result = [];
   for (const classInfo of classes || []) {
     const days = await getDaysFromSupabase(classInfo.id);
-    result.push({ id: classInfo.id, days });
+    result.push({
+      id: classInfo.id,
+      days,
+      lastSyncedAt: classInfo.last_synced_at || null,
+    });
   }
 
   return result;
+}
+
+async function getClassIdsFromSupabase() {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('classes')
+    .select('id')
+    .order('id', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(row => row.id);
 }
 
 async function getDaysFromSupabase(classId) {
@@ -341,6 +356,7 @@ async function syncClassToSupabase(classId) {
 }
 
 module.exports = {
+  getClassIdsFromSupabase,
   getClassesFromSupabase,
   getDaysFromSupabase,
   getSubmissionsFromSupabase,
