@@ -49,15 +49,24 @@ Set these shell variables first:
 
 ```bash
 PROJECT_ID="your-gcp-project-id"
-REGION="us-central1"
+REGION="asia-southeast1"
 SERVICE="grading-sync-worker"
-IMAGE="gcr.io/$PROJECT_ID/$SERVICE"
+REPOSITORY="grading-workers"
+IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
 ```
 
 Enable the required Google Cloud APIs:
 
 ```bash
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com cloudscheduler.googleapis.com
+```
+
+Create the Docker repository once:
+
+```bash
+gcloud artifacts repositories create "$REPOSITORY" \
+  --repository-format=docker \
+  --location="$REGION"
 ```
 
 Build and deploy:
