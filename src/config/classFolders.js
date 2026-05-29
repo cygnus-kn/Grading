@@ -1,14 +1,14 @@
 const CLASS_FOLDERS = {
+  S141: {
+    folderId: '1ozv7HFROs1sjrOFOS8JefqN12lgJCVpJ',
+    layout: 'student-first',
+  },
   S133: {
     folderId: '1A-ADtlofvngCOB126WYVBmfW9pexbyUn',
     layout: 'student-first',
   },
   S136: {
     folderId: '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r',
-    layout: 'student-first',
-  },
-  S141: {
-    folderId: '1ozv7HFROs1sjrOFOS8JefqN12lgJCVpJ',
     layout: 'student-first',
   },
 };
