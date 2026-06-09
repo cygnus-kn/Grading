@@ -84,7 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             renderSidebar();
             restoreCurrentPosition();
-            refreshAllClassesOnLoad();
         })
         .catch(err => console.error('Error loading classes:', err));
 
