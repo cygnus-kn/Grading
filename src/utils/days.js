@@ -15,7 +15,7 @@ function parseDayNumber(folderName) {
   const standaloneNumber = rawName.match(/^0*(\d+)$/);
   if (standaloneNumber) return parseInt(standaloneNumber[1], 10);
 
-  const cleaned = rawName.toLowerCase().replace(/\s+/g, '');
+  const cleaned = rawName.toLowerCase().replace(/[\s\-_.:]+/g, '');
   const match = cleaned.match(/(?:homework|hw|day|d|ngày|ngay)0*(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
