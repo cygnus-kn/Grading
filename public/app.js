@@ -160,6 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </svg>
                         </div>
                     </div>
+                    <div class="class-sync-time" data-class="${className}">${formatSyncTime(data.lastSyncedAt)}</div>
                     <div class="class-children">
                         ${getClassDays(className).map(day => `
                             <div class="date-entry" data-class="${className}" data-day="${day.day}" onclick="window.selectHomework('${className}', '${day.day}')">
@@ -199,6 +200,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `).join('');
         }
+    }
+
+    function updateSidebarSyncTime(className) {
+        const el = sidebarNav.querySelector(`.class-sync-time[data-class="${className}"]`);
+        if (el) el.textContent = formatSyncTime(CLASSES_DATA[className]?.lastSyncedAt);
     }
 
     function setClassRefreshState(className, state) {
@@ -261,6 +267,31 @@ document.addEventListener('DOMContentLoaded', () => {
     function getDayLabel(className, dayValue) {
         const dayNumber = String(dayValue).padStart(2, '0');
         return `Day ${dayNumber}`;
+    }
+
+    function formatSyncTime(isoString) {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        if (isNaN(date.getTime())) return '';
+
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const syncDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+
+        if (syncDay.getTime() === today.getTime()) {
+            return `last updated ${hours}:${minutes}`;
+        }
+        if (syncDay.getTime() === yesterday.getTime()) {
+            return 'last updated yesterday';
+        }
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        return `last updated ${dd}/${mm}`;
     }
 
     function escapeHtml(value) {
@@ -433,6 +464,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 showEmptyWorkspace();
             }
 
+            CLASSES_DATA[className].lastSyncedAt = new Date().toISOString();
+            updateSidebarSyncTime(className);
             setDayRefreshState('idle');
         } catch (error) {
             console.error(`Failed to refresh ${className} day ${day}:`, error);
@@ -491,7 +524,11 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBrowserCachesForClasses(refreshedClassNames, result.clearBrowserKeys || []);
         await Promise.all(refreshedClassNames.map(className => loadDaysForClass(className)));
 
-        refreshedClassNames.forEach(className => setClassRefreshState(className, 'idle'));
+        refreshedClassNames.forEach(className => {
+            setClassRefreshState(className, 'idle');
+            CLASSES_DATA[className].lastSyncedAt = new Date().toISOString();
+            updateSidebarSyncTime(className);
+        });
         failedClassNames.forEach(className => {
             setClassRefreshState(className, 'error');
             window.setTimeout(() => setClassRefreshState(className, 'idle'), 1600);

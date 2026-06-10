@@ -326,6 +326,25 @@ body.dark-theme .sidebar-header {
   color: var(--color-accent) !important;
 }
 
+.class-sync-time {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--color-text-tertiary);
+  line-height: 1.2;
+  margin-top: -2px;
+  margin-bottom: 6px;
+  padding-left: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.class-sync-time:empty {
+  display: none;
+}
+
 .class-header:hover {
   background: var(--control-bg-hover);
   border-color: var(--control-border-hover);
