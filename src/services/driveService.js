@@ -49,6 +49,37 @@ function assertDrive() {
   if (!drive) throw new Error('Drive API not initialized');
 }
 
+async function getChangesStartPageToken() {
+  assertDrive();
+  const res = await withDriveRetry(() => drive.changes.getStartPageToken({}));
+  return res.data.startPageToken;
+}
+
+async function getChangesSince(pageToken) {
+  assertDrive();
+  const changes = [];
+  let currentToken = pageToken;
+
+  do {
+    const res = await withDriveRetry(() => drive.changes.list({
+      pageToken: currentToken,
+      fields: 'nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, mimeType, parents, trashed))',
+      pageSize: 1000,
+      includeRemoved: true,
+      spaces: 'drive',
+    }));
+
+    changes.push(...(res.data.changes || []));
+
+    if (res.data.newStartPageToken) {
+      return { changes, newStartPageToken: res.data.newStartPageToken };
+    }
+    currentToken = res.data.nextPageToken;
+  } while (currentToken);
+
+  return { changes, newStartPageToken: currentToken };
+}
+
 async function getStudentFolders(parentFolderId) {
   assertDrive();
   const res = await withDriveRetry(() => drive.files.list({
@@ -378,6 +409,8 @@ module.exports = {
   classifySubmissionFile,
   exportGoogleWorkspaceFile,
   getAudioFilesForFolders,
+  getChangesStartPageToken,
+  getChangesSince,
   getChildFolders,
   getDayFolders,
   getDayFoldersForStudents,

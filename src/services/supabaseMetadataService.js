@@ -2,6 +2,8 @@ const { getClassConfig } = require('../config/classFolders');
 const { requireSupabase, supabase } = require('../config/supabase');
 const { toQuestionLabel, parseDayNumber } = require('../utils/days');
 const {
+  getChangesStartPageToken,
+  getChangesSince,
   getChildFolders,
   getDayFoldersForStudents,
   getSubmissionFilesForFolders,
@@ -103,6 +105,121 @@ async function pruneClassDayRows(client, table, columns, classId, dayNumber, isC
     .map(row => row[idColumn]);
 
   return deleteClassRowsByIds(client, table, classId, idColumn, staleIds);
+}
+
+async function getSyncPageToken() {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('sync_state')
+    .select('value')
+    .eq('key', 'drive_page_token')
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.value || null;
+}
+
+async function setSyncPageToken(token) {
+  const client = requireSupabase();
+  const { error } = await client
+    .from('sync_state')
+    .upsert({
+      key: 'drive_page_token',
+      value: token,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+
+  if (error) throw error;
+}
+
+function mapChangesToClassIds(changes, classRows, studentRows, submissionRows) {
+  const folderToClass = new Map();
+
+  // Map root class folders
+  for (const row of classRows || []) {
+    if (row.drive_folder_id) folderToClass.set(row.drive_folder_id, row.id);
+  }
+  // Map student folders
+  for (const row of studentRows || []) {
+    if (row.drive_folder_id) folderToClass.set(row.drive_folder_id, row.class_id);
+    // Also map the student's id as a folder id (student.id IS the drive folder id)
+    if (row.id) folderToClass.set(row.id, row.class_id);
+  }
+  // Map submission (day) folders
+  for (const row of submissionRows || []) {
+    if (row.drive_folder_id) folderToClass.set(row.drive_folder_id, row.class_id);
+  }
+
+  const changedClassIds = new Set();
+
+  for (const change of changes) {
+    const file = change.file;
+    if (!file) {
+      // File was removed but no file metadata — conservatively mark all
+      if (change.removed) {
+        return { allClasses: true };
+      }
+      continue;
+    }
+
+    // Check the file itself (e.g. if it's a known folder)
+    if (folderToClass.has(file.id)) {
+      changedClassIds.add(folderToClass.get(file.id));
+      continue;
+    }
+
+    // Check its parent
+    const parentId = (file.parents || [])[0];
+    if (parentId && folderToClass.has(parentId)) {
+      changedClassIds.add(folderToClass.get(parentId));
+      continue;
+    }
+  }
+
+  return { changedClassIds };
+}
+
+async function detectChangedClassIds() {
+  const client = requireSupabase();
+  const pageToken = await getSyncPageToken();
+
+  // First time: no token stored — need a full sync to establish baseline
+  if (!pageToken) {
+    const initialToken = await getChangesStartPageToken();
+    console.log('[changes] No page token stored — first run, marking all classes for full sync');
+    return { allClasses: true, newToken: initialToken };
+  }
+
+  const { changes, newStartPageToken } = await getChangesSince(pageToken);
+  console.log(`[changes] Fetched ${changes.length} change(s) from Drive`);
+
+  if (changes.length === 0) {
+    return { changedClassIds: new Set(), newToken: newStartPageToken };
+  }
+
+  // Build a lookup of known Drive folder IDs → class IDs
+  // from students table (student folder → class) and classes table (root folder → class)
+  const { data: classRows } = await client
+    .from('classes')
+    .select('id, drive_folder_id');
+
+  const { data: studentRows } = await client
+    .from('students')
+    .select('id, class_id, drive_folder_id');
+
+  const { data: submissionRows } = await client
+    .from('submissions')
+    .select('drive_folder_id, class_id');
+
+  const mappingResult = mapChangesToClassIds(changes, classRows, studentRows, submissionRows);
+
+  if (mappingResult.allClasses) {
+    console.log(`[changes] Removed file with no metadata — marking all classes`);
+    return { allClasses: true, newToken: newStartPageToken };
+  }
+
+  console.log(`[changes] Detected changes in ${mappingResult.changedClassIds.size} class(es): ${[...mappingResult.changedClassIds].join(', ') || '(none)'}`);
+  return { changedClassIds: mappingResult.changedClassIds, newToken: newStartPageToken };
 }
 
 async function getClassesFromSupabase() {
@@ -530,10 +647,14 @@ async function syncClassDayToSupabase(classId, day) {
 }
 
 module.exports = {
+  detectChangedClassIds,
   getClassIdsFromSupabase,
   getClassesFromSupabase,
   getDaysFromSupabase,
   getSubmissionsFromSupabase,
+  getSyncPageToken,
+  mapChangesToClassIds,
+  setSyncPageToken,
   syncClassDayToSupabase,
   syncClassToSupabase,
 };

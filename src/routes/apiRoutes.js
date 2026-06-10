@@ -15,10 +15,12 @@ const {
   scanDaysForClass,
 } = require('../services/submissionsService');
 const {
+  detectChangedClassIds,
   getClassIdsFromSupabase,
   getClassesFromSupabase,
   getDaysFromSupabase,
   getSubmissionsFromSupabase,
+  setSyncPageToken,
   syncClassDayToSupabase,
   syncClassToSupabase,
 } = require('../services/supabaseMetadataService');
@@ -112,9 +114,45 @@ router.post('/cache/refresh', async (req, res) => {
   const targets = await getSyncTargetClassIds(classId);
 
   if (supabase) {
-    const results = await syncClassTargets(targets);
-    const clearBrowserKeys = targets.map(id => `gradingDays_${id}`);
-    return res.json({ refreshed: results, clearBrowserKeys });
+    try {
+      // Use incremental detection to skip classes with no changes
+      const detection = await detectChangedClassIds();
+      let effectiveTargets;
+      let skipped = [];
+
+      if (detection.allClasses) {
+        effectiveTargets = targets;
+      } else {
+        effectiveTargets = targets.filter(id => detection.changedClassIds.has(id));
+        skipped = targets.filter(id => !detection.changedClassIds.has(id));
+      }
+
+      // Save the new page token
+      if (detection.newToken) {
+        await setSyncPageToken(detection.newToken);
+      }
+
+      if (effectiveTargets.length === 0) {
+        // Nothing changed — return immediately
+        console.log(`[sync] No Drive changes detected for ${targets.join(', ')} — skipping sync`);
+        return res.json({
+          refreshed: {},
+          clearBrowserKeys: [],
+          upToDate: true,
+          skipped,
+        });
+      }
+
+      const results = await syncClassTargets(effectiveTargets);
+      const clearBrowserKeys = effectiveTargets.map(id => `gradingDays_${id}`);
+      return res.json({ refreshed: results, clearBrowserKeys, skipped });
+    } catch (error) {
+      console.error('[sync] Incremental detection failed, falling back to full sync:', error.message);
+      // Fall through to full sync on detection failure
+      const results = await syncClassTargets(targets);
+      const clearBrowserKeys = targets.map(id => `gradingDays_${id}`);
+      return res.json({ refreshed: results, clearBrowserKeys });
+    }
   }
 
   const results = {};
@@ -147,12 +185,34 @@ router.get('/cron/sync', async (req, res) => {
   }
 
   try {
-    const targets = await getSyncTargetClassIds();
+    const allTargets = await getSyncTargetClassIds();
+    let targets;
+    let skipped = [];
+
+    try {
+      const detection = await detectChangedClassIds();
+
+      if (detection.allClasses) {
+        targets = allTargets;
+      } else {
+        targets = allTargets.filter(id => detection.changedClassIds.has(id));
+        skipped = allTargets.filter(id => !detection.changedClassIds.has(id));
+      }
+
+      if (detection.newToken) {
+        await setSyncPageToken(detection.newToken);
+      }
+    } catch (detectionError) {
+      console.error('[cron] Change detection failed, falling back to full sync:', detectionError.message);
+      targets = allTargets;
+    }
+
     const results = await syncClassTargets(targets);
     res.json({
       success: true,
       syncedAt: new Date().toISOString(),
       refreshed: results,
+      skipped,
     });
   } catch (error) {
     console.error('Cron sync error:', error);

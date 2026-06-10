@@ -4,7 +4,9 @@ const express = require('express');
 const { CLASS_FOLDERS } = require('./config/classFolders');
 const { supabase } = require('./config/supabase');
 const {
+  detectChangedClassIds,
   getClassIdsFromSupabase,
+  setSyncPageToken,
   syncClassToSupabase,
 } = require('./services/supabaseMetadataService');
 
@@ -73,6 +75,7 @@ function createWorkerApp() {
     }
 
     const startedAt = new Date();
+    const forceFullSync = req.query.force === 'true' || req.body?.force === true;
     const requestedClasses = [
       ...normalizeRequestedClasses(req.query.class),
       ...normalizeRequestedClasses(req.body?.class),
@@ -80,7 +83,40 @@ function createWorkerApp() {
     ];
 
     try {
-      const targets = await getSyncTargets(requestedClasses);
+      let targets;
+      let skipped = [];
+      let changeDetection = null;
+
+      if (forceFullSync || requestedClasses.length > 0) {
+        // Force mode or specific classes requested: skip change detection
+        targets = await getSyncTargets(requestedClasses);
+        console.log(`[worker] Full sync requested for ${targets.length} class(es)`);
+      } else {
+        // Incremental mode: detect which classes changed
+        const detection = await detectChangedClassIds();
+        changeDetection = {
+          allClasses: detection.allClasses || false,
+          changedCount: detection.changedClassIds?.size ?? 'all',
+        };
+
+        const allTargets = await getSyncTargets();
+
+        if (detection.allClasses) {
+          targets = allTargets;
+          console.log(`[worker] First run or unknown changes — syncing all ${targets.length} class(es)`);
+        } else {
+          targets = allTargets.filter(id => detection.changedClassIds.has(id));
+          skipped = allTargets.filter(id => !detection.changedClassIds.has(id));
+          console.log(`[worker] Incremental: syncing ${targets.length}, skipping ${skipped.length}`);
+        }
+
+        // Save the new page token after detection (before syncing, so even if sync
+        // fails for some classes we don't re-process the same changes next run)
+        if (detection.newToken) {
+          await setSyncPageToken(detection.newToken);
+        }
+      }
+
       const { refreshed, errors } = await syncTargets(targets);
       const endedAt = new Date();
       const hasErrors = Object.keys(errors).length > 0;
@@ -91,6 +127,8 @@ function createWorkerApp() {
         endedAt: endedAt.toISOString(),
         durationMs: endedAt.getTime() - startedAt.getTime(),
         targets,
+        skipped,
+        changeDetection,
         refreshed,
         errors,
       });

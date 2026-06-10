@@ -504,6 +504,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!res.ok) throw new Error(`Refresh failed with ${res.status}`);
 
         const result = await res.json();
+
+        // Server detected no Drive changes — nothing to sync
+        if (result.upToDate) {
+            targetClassNames.forEach(className => {
+                setClassRefreshState(className, 'idle');
+            });
+            return result;
+        }
+
         const refreshedClassNames = [];
         const failedClassNames = [];
         targetClassNames.forEach(className => {

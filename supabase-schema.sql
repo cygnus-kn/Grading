@@ -1,3 +1,9 @@
+create table if not exists sync_state (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists classes (
   id text primary key,
   drive_folder_id text not null,
