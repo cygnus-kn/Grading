@@ -109,7 +109,8 @@ gcloud run services add-iam-policy-binding "$SERVICE" \
 
 gcloud scheduler jobs create http grading-sync-hourly \
   --location "$REGION" \
-  --schedule "0 * * * *" \
+  --schedule "*/15 17,19 * * *" \
+  --time-zone "Asia/Ho_Chi_Minh" \
   --uri "$WORKER_URL/sync" \
   --http-method POST \
   --oidc-service-account-email "$SCHEDULER_SA" \
@@ -118,12 +119,56 @@ gcloud scheduler jobs create http grading-sync-hourly \
 
 ## What Success Looks Like
 
-The response should include:
+The worker now uses the **Drive Changes API** for incremental sync. On each run it asks
+Drive "what changed since last time?" and only re-syncs classes that actually had changes.
 
-- `success: true`
-- `targets`: class IDs that were synced
-- `refreshed`: per-class counts for students, days, submissions, and files
-- `errors: {}`
+### Normal run (some classes changed)
 
-If a class fails, the worker returns HTTP 500 so Cloud Scheduler can mark the
-run as failed and retry according to its retry policy.
+```json
+{
+  "success": true,
+  "startedAt": "...",
+  "endedAt": "...",
+  "durationMs": 12000,
+  "targets":  ["S133"],
+  "skipped":  ["S136", "S141"],
+  "changeDetection": { "allClasses": false, "changedCount": 1 },
+  "refreshed": {
+    "S133": { "students": 28, "days": 30, "submissions": 840, "submissionFiles": 1680 }
+  },
+  "errors": {}
+}
+```
+
+### Idle run (nothing changed in Drive)
+
+```json
+{
+  "success": true,
+  "targets":  [],
+  "skipped":  ["S133", "S136", "S141"],
+  "changeDetection": { "allClasses": false, "changedCount": 0 },
+  "refreshed": {},
+  "errors": {}
+}
+```
+
+### First-ever run (no page token stored yet)
+
+On the very first run there is no stored page token, so the worker does a full
+sync of every class to build a baseline, then saves the token for future runs.
+`changeDetection.allClasses` will be `true`.
+
+### Force a full re-crawl
+
+Pass `?force=true` (or `"force": true` in the request body) to bypass change
+detection and re-crawl every class unconditionally — useful for recovery after
+a schema migration or when you suspect the page token is stale:
+
+```bash
+curl -X POST "$WORKER_URL/sync?force=true" \
+  -H "X-Sync-Worker-Secret: $SYNC_WORKER_SECRET"
+```
+
+If a class fails, the worker still returns HTTP 500 so Cloud Scheduler can mark
+the run as failed and retry according to its retry policy.
