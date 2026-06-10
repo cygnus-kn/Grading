@@ -7,6 +7,19 @@ const CLASS_FOLDERS = {
     folderId: '1A-ADtlofvngCOB126WYVBmfW9pexbyUn',
     layout: 'student-first',
   },
+  S134: {
+    folderId: '1Iu0GOJKXT96i6yOBQPNBkITVytG2GHef',
+    layout: 'student-first',
+    includes: [
+      'Cao Tiến Cường',
+      'Võ Anh Kiệt',
+      'Nguyễn Hoàng Uyên',
+      'Trương Khánh Như',
+      'Nguyễn Quang Dũng',
+      'Nguyễn Trọng Trung Hiếu',
+      'Chu Thị Thu Hoài'
+    ],
+  },
   S136: {
     folderId: '1QmoSJCr5RV-9SrvwyQU8bRMLfQwztW6r',
     layout: 'student-first',

@@ -27,11 +27,11 @@ async function scanDaysForClass(classId, classConfig) {
     return normalizeDays(await getCachedDayFolders(classId, classConfig)) || [];
   }
 
-  return scanDaysFromDrive(classConfig.folderId);
+  return scanDaysFromDrive(classConfig);
 }
 
 async function getStudentFirstSubmissions(classConfig, day) {
-  const students = await getStudentFolders(classConfig.folderId);
+  const students = await getStudentFolders(classConfig);
   const dayFoldersByStudentId = await getDayFoldersForStudents(students, day);
   const filesByFolderId = await getSubmissionFilesForFolders([...dayFoldersByStudentId.values()]);
 

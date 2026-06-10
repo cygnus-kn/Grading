@@ -34,8 +34,11 @@ async function getSupabaseClassConfig(classId) {
 
 async function getClassConfigForSync(classId) {
   const dbConfig = await getSupabaseClassConfig(classId);
-  if (dbConfig) return dbConfig;
-  return getClassConfig(classId);
+  const fallbackConfig = getClassConfig(classId);
+  if (dbConfig) {
+    return { ...(fallbackConfig || {}), ...dbConfig };
+  }
+  return fallbackConfig;
 }
 
 async function upsertRows(table, rows, options = {}) {
@@ -342,7 +345,7 @@ async function getDayFoldersForSync(students) {
 async function syncStudentFirstClass(classId, classConfig) {
   const client = requireSupabase();
   const now = new Date().toISOString();
-  const students = await getStudentFolders(classConfig.folderId);
+  const students = await getStudentFolders(classConfig);
   const dayFolders = await getDayFoldersForSync(students);
   const filesByFolderId = await getSubmissionFilesForFolders(dayFolders);
   const currentStudentIds = new Set(students.map(student => student.id));
@@ -482,7 +485,7 @@ async function syncStudentFirstClassDay(classId, classConfig, day) {
     throw new Error(`Invalid day for sync: ${day}`);
   }
 
-  const students = await getStudentFolders(classConfig.folderId);
+  const students = await getStudentFolders(classConfig);
   const dayFoldersByStudentId = await getDayFoldersForStudents(students, dayNumber);
   const dayFolders = [...dayFoldersByStudentId.entries()].map(([studentId, folder]) => ({
     ...folder,

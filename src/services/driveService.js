@@ -80,14 +80,22 @@ async function getChangesSince(pageToken) {
   return { changes, newStartPageToken: currentToken };
 }
 
-async function getStudentFolders(parentFolderId) {
+async function getStudentFolders(classConfigOrFolderId) {
   assertDrive();
+  const parentFolderId = typeof classConfigOrFolderId === 'string' ? classConfigOrFolderId : classConfigOrFolderId.folderId;
   const res = await withDriveRetry(() => drive.files.list({
     q: `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
     pageSize: 100,
   }));
-  return res.data.files || [];
+  let students = res.data.files || [];
+  
+  if (typeof classConfigOrFolderId === 'object' && classConfigOrFolderId.includes && classConfigOrFolderId.includes.length > 0) {
+    const included = new Set(classConfigOrFolderId.includes.map(n => n.trim().toLowerCase()));
+    students = students.filter(s => included.has(s.name.trim().toLowerCase()));
+  }
+  
+  return students;
 }
 
 async function getChildFolders(parentFolderId) {
@@ -246,9 +254,9 @@ async function getSubmissionFilesForFolders(dayFolders) {
   return filesByFolderId;
 }
 
-async function scanDaysFromDrive(rootFolderId) {
+async function scanDaysFromDrive(classConfigOrFolderId) {
   assertDrive();
-  const students = await getStudentFolders(rootFolderId);
+  const students = await getStudentFolders(classConfigOrFolderId);
   const daySetMap = new Map();
 
   await Promise.all(students.map(async student => {
