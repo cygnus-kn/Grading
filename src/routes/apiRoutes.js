@@ -115,26 +115,26 @@ router.post('/cache/refresh', async (req, res) => {
 
   if (supabase) {
     try {
-      // Use incremental detection to skip classes with no changes
-      const detection = await detectChangedClassIds();
-      let effectiveTargets;
+      let effectiveTargets = targets;
       let skipped = [];
+      let detectionResult = null;
 
-      if (detection.allClasses) {
-        effectiveTargets = targets;
-      } else {
-        effectiveTargets = targets.filter(id => detection.changedClassIds.has(id));
-        skipped = targets.filter(id => !detection.changedClassIds.has(id));
-      }
+      // If a specific class is requested, force sync it. Otherwise use incremental detection.
+      if (!classId) {
+        detectionResult = await detectChangedClassIds();
 
-      // Save the new page token
-      if (detection.newToken) {
-        await setSyncPageToken(detection.newToken);
+        if (!detectionResult.allClasses) {
+          effectiveTargets = targets.filter(id => detectionResult.changedClassIds.has(id));
+          skipped = targets.filter(id => !detectionResult.changedClassIds.has(id));
+        }
       }
 
       if (effectiveTargets.length === 0) {
-        // Nothing changed — return immediately
+        // Nothing changed — return immediately and save token
         console.log(`[sync] No Drive changes detected for ${targets.join(', ')} — skipping sync`);
+        if (detectionResult && detectionResult.newToken) {
+          await setSyncPageToken(detectionResult.newToken);
+        }
         return res.json({
           refreshed: {},
           clearBrowserKeys: [],
@@ -144,6 +144,16 @@ router.post('/cache/refresh', async (req, res) => {
       }
 
       const results = await syncClassTargets(effectiveTargets);
+      
+      // Check if any errors occurred during sync
+      const hasErrors = Object.values(results).some(result => typeof result === 'string' && result.startsWith('error:'));
+      
+      if (detectionResult && detectionResult.newToken && !hasErrors) {
+        await setSyncPageToken(detectionResult.newToken);
+      } else if (detectionResult && detectionResult.newToken && hasErrors) {
+        console.log(`[sync] Errors occurred during sync, not advancing page token.`);
+      }
+
       const clearBrowserKeys = effectiveTargets.map(id => `gradingDays_${id}`);
       return res.json({ refreshed: results, clearBrowserKeys, skipped });
     } catch (error) {
