@@ -362,21 +362,39 @@ function safeHeaderFileName(fileName) {
     .trim() || 'submission';
 }
 
-async function streamAudio(fileId, res) {
-  return streamDriveFile(fileId, res);
+async function streamAudio(fileId, res, req) {
+  return streamDriveFile(fileId, res, req);
 }
 
-async function streamDriveFile(fileId, res) {
+async function streamDriveFile(fileId, res, req) {
   assertDrive();
   const metadata = await withDriveRetry(() => drive.files.get({
     fileId,
     fields: 'id, name, mimeType',
   }));
 
+  const requestHeaders = {};
+  if (req && req.headers.range) {
+    requestHeaders.Range = req.headers.range;
+  }
+
   const response = await withDriveRetry(() => drive.files.get(
     { fileId, alt: 'media' },
-    { responseType: 'stream' }
+    { responseType: 'stream', headers: requestHeaders }
   ));
+
+  res.status(response.status);
+
+  const headersToForward = ['content-length', 'content-range', 'accept-ranges'];
+  for (const header of headersToForward) {
+    if (response.headers[header]) {
+      res.setHeader(header, response.headers[header]);
+    }
+  }
+
+  if (!res.hasHeader('accept-ranges')) {
+    res.setHeader('Accept-Ranges', 'bytes');
+  }
 
   const contentType = response.headers['content-type'] || metadata.data.mimeType || 'application/octet-stream';
   res.setHeader('Content-Type', contentType);

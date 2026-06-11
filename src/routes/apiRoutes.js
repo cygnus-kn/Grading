@@ -308,7 +308,7 @@ router.get('/submissions', async (req, res) => {
 
 router.get('/audio/:fileId', async (req, res) => {
   try {
-    await streamAudio(req.params.fileId, res);
+    await streamAudio(req.params.fileId, res, req);
   } catch (error) {
     console.error('Audio Proxy Error:', error);
     res.status(500).send('Error fetching audio');
@@ -317,7 +317,7 @@ router.get('/audio/:fileId', async (req, res) => {
 
 router.get('/files/:fileId/content', async (req, res) => {
   try {
-    await streamDriveFile(req.params.fileId, res);
+    await streamDriveFile(req.params.fileId, res, req);
   } catch (error) {
     console.error('Drive File Proxy Error:', error);
     res.status(500).send('Error fetching file');
