@@ -86,6 +86,7 @@ function createWorkerApp() {
       let targets;
       let skipped = [];
       let changeDetection = null;
+      let detectionResult = null;
 
       if (forceFullSync || requestedClasses.length > 0) {
         // Force mode or specific classes requested: skip change detection
@@ -93,33 +94,35 @@ function createWorkerApp() {
         console.log(`[worker] Full sync requested for ${targets.length} class(es)`);
       } else {
         // Incremental mode: detect which classes changed
-        const detection = await detectChangedClassIds();
+        detectionResult = await detectChangedClassIds();
         changeDetection = {
-          allClasses: detection.allClasses || false,
-          changedCount: detection.changedClassIds?.size ?? 'all',
+          allClasses: detectionResult.allClasses || false,
+          changedCount: detectionResult.changedClassIds?.size ?? 'all',
         };
 
         const allTargets = await getSyncTargets();
 
-        if (detection.allClasses) {
+        if (detectionResult.allClasses) {
           targets = allTargets;
           console.log(`[worker] First run or unknown changes — syncing all ${targets.length} class(es)`);
         } else {
-          targets = allTargets.filter(id => detection.changedClassIds.has(id));
-          skipped = allTargets.filter(id => !detection.changedClassIds.has(id));
+          targets = allTargets.filter(id => detectionResult.changedClassIds.has(id));
+          skipped = allTargets.filter(id => !detectionResult.changedClassIds.has(id));
           console.log(`[worker] Incremental: syncing ${targets.length}, skipping ${skipped.length}`);
-        }
-
-        // Save the new page token after detection (before syncing, so even if sync
-        // fails for some classes we don't re-process the same changes next run)
-        if (detection.newToken) {
-          await setSyncPageToken(detection.newToken);
         }
       }
 
       const { refreshed, errors } = await syncTargets(targets);
       const endedAt = new Date();
       const hasErrors = Object.keys(errors).length > 0;
+
+      // Save the new page token only if all target syncs succeeded
+      // so we don't lose the changes if a sync fails.
+      if (detectionResult && detectionResult.newToken && !hasErrors) {
+        await setSyncPageToken(detectionResult.newToken);
+      } else if (detectionResult && detectionResult.newToken && hasErrors) {
+        console.log(`[worker] Sync had errors, not advancing page token.`);
+      }
 
       res.status(hasErrors ? 500 : 200).json({
         success: !hasErrors,
