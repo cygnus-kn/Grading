@@ -356,10 +356,13 @@ function toSubmissionItems(files) {
     .map(toSubmissionItem);
 }
 
-function safeHeaderFileName(fileName) {
-  return String(fileName || 'submission')
+function getDispositionHeader(fileName, disposition = 'inline') {
+  const safeName = String(fileName || 'submission')
+    .replace(/[^\x20-\x7E]/g, '')
     .replace(/[\r\n"]/g, '')
     .trim() || 'submission';
+  const encodedName = encodeURIComponent(String(fileName || 'submission'));
+  return `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodedName}`;
 }
 
 async function streamAudio(fileId, res, req) {
@@ -380,15 +383,16 @@ async function streamDriveFile(fileId, res, req) {
 
   const response = await withDriveRetry(() => drive.files.get(
     { fileId, alt: 'media' },
-    { responseType: 'stream', headers: requestHeaders }
+    { responseType: 'stream', headers: requestHeaders, decompress: false }
   ));
 
   res.status(response.status);
 
-  const headersToForward = ['content-length', 'content-range', 'accept-ranges'];
+  const headersToForward = ['Content-Length', 'Content-Range', 'Accept-Ranges'];
   for (const header of headersToForward) {
-    if (response.headers[header]) {
-      res.setHeader(header, response.headers[header]);
+    const value = response.headers[header.toLowerCase()] || response.headers[header] || (typeof response.headers.get === 'function' && response.headers.get(header));
+    if (value) {
+      res.setHeader(header, value);
     }
   }
 
@@ -398,7 +402,7 @@ async function streamDriveFile(fileId, res, req) {
 
   const contentType = response.headers['content-type'] || metadata.data.mimeType || 'application/octet-stream';
   res.setHeader('Content-Type', contentType);
-  res.setHeader('Content-Disposition', `inline; filename="${safeHeaderFileName(metadata.data.name)}"`);
+  res.setHeader('Content-Disposition', getDispositionHeader(metadata.data.name, 'inline'));
   response.data
     .on('end', () => {})
     .on('error', err => {
@@ -420,9 +424,10 @@ async function exportGoogleWorkspaceFile(fileId, exportMimeType, res) {
   ));
 
   const extension = exportMimeType === 'application/pdf' ? '.pdf' : '.txt';
-  const baseName = safeHeaderFileName(metadata.data.name).replace(/\.[^/.]+$/, '');
+  const rawName = String(metadata.data.name || 'submission').replace(/\.[^/.]+$/, '');
+  const fullName = `${rawName}${extension}`;
   res.setHeader('Content-Type', exportMimeType);
-  res.setHeader('Content-Disposition', `inline; filename="${baseName}${extension}"`);
+  res.setHeader('Content-Disposition', getDispositionHeader(fullName, 'inline'));
   response.data
     .on('end', () => {})
     .on('error', err => {
