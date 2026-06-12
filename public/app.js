@@ -1267,17 +1267,33 @@ document.addEventListener('DOMContentLoaded', () => {
         const toggleAudio = () => {
             if (audio.paused) {
                 document.querySelectorAll('audio').forEach(a => a.pause());
-                document.querySelectorAll('.play-mini-btn').forEach(b => b.textContent = '▶');
+                document.querySelectorAll('.play-mini-btn').forEach(b => {
+                    if (!b.classList.contains('is-error')) {
+                        b.textContent = '▶';
+                    }
+                    b.classList.remove('is-loading');
+                });
+                playBtn.textContent = '↻';
+                playBtn.classList.add('is-loading');
                 audio.play()
                     .then(() => {
+                        playBtn.classList.remove('is-loading');
                         playBtn.textContent = '⏸';
                     })
-                    .catch(() => {
-                        playBtn.textContent = '▶';
+                    .catch((err) => {
+                        playBtn.classList.remove('is-loading');
+                        if (err.name !== 'NotAllowedError' && err.name !== 'AbortError') {
+                            playBtn.classList.add('is-error');
+                            playBtn.textContent = '⚠️';
+                            timeDisplay.textContent = 'Error';
+                        } else {
+                            playBtn.textContent = '▶';
+                        }
                     });
             } else {
                 audio.pause();
                 playBtn.textContent = '▶';
+                playBtn.classList.remove('is-loading');
             }
         };
 
@@ -1290,14 +1306,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
         audio.addEventListener('loadedmetadata', updateDurationDisplay);
         audio.addEventListener('durationchange', updateDurationDisplay);
+        
+        audio.addEventListener('waiting', () => {
+            playBtn.textContent = '↻';
+            playBtn.classList.add('is-loading');
+        });
+        audio.addEventListener('playing', () => {
+            playBtn.classList.remove('is-loading', 'is-error');
+            playBtn.textContent = '⏸';
+        });
+        audio.addEventListener('canplay', () => {
+            if (!audio.paused) {
+                playBtn.classList.remove('is-loading', 'is-error');
+                playBtn.textContent = '⏸';
+            } else {
+                playBtn.classList.remove('is-loading');
+                if (!playBtn.classList.contains('is-error')) {
+                    playBtn.textContent = '▶';
+                }
+            }
+        });
+        audio.addEventListener('error', () => {
+            playBtn.classList.remove('is-loading');
+            playBtn.classList.add('is-error');
+            playBtn.textContent = '⚠️';
+            timeDisplay.textContent = 'Error';
+        });
+
         audio.addEventListener('pause', () => {
-            playBtn.textContent = '▶';
+            if (!playBtn.classList.contains('is-error') && !playBtn.classList.contains('is-loading')) {
+                playBtn.textContent = '▶';
+            }
         });
         audio.addEventListener('timeupdate', () => {
             if (!hasUsableDuration()) {
                 progress.style.width = '0%';
                 knob.style.left = '0%';
-                timeDisplay.textContent = '--:--';
+                if (!playBtn.classList.contains('is-error')) {
+                    timeDisplay.textContent = '--:--';
+                }
                 return;
             }
             const pct = (audio.currentTime / audio.duration) * 100;
