@@ -6,6 +6,7 @@ const CLASSES_DATA = {
     'S141': { days: [], loaded: false },
     'S133': { days: [], loaded: false },
     'S136': { days: [], loaded: false },
+    'S139': { days: [], loaded: false },
 };
 
 const DEFAULT_TABS = [];
@@ -126,8 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const sortedEntries = Object.entries(CLASSES_DATA).sort(([a], [b]) => {
             if (a === 'S141') return -1;
             if (b === 'S141') return 1;
-            if (a === 'S134') return 1;
-            if (b === 'S134') return -1;
+
             return a.localeCompare(b);
         });
         for (const [className, data] of sortedEntries) {
