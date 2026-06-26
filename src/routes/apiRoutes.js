@@ -23,6 +23,7 @@ const {
   setSyncPageToken,
   syncClassDayToSupabase,
   syncClassToSupabase,
+  upsertComment,
 } = require('../services/supabaseMetadataService');
 
 const router = express.Router();
@@ -354,13 +355,32 @@ router.get('/files/:fileId/export', async (req, res) => {
   }
 });
 
-router.post('/feedback', (req, res) => {
-  const { studentId, day, question, comment } = req.body;
-  console.log(`Feedback received: Student ${studentId}, Day ${day}, Q: ${question}, Comment: ${comment}`);
+router.post('/feedback', async (req, res) => {
+  const { class: classId, studentId, day, question, comment } = req.body || {};
 
-  setTimeout(() => {
-    res.json({ success: true, message: 'Comment pushed to Google Sheet (Simulated)' });
-  }, 800);
+  if (!classId || !studentId || !day || !question) {
+    return res.status(400).json({ error: 'class, studentId, day, and question are required' });
+  }
+
+  if (!supabase) {
+    // Fallback: log only when Supabase is not configured
+    console.log(`[feedback] No Supabase — Student ${studentId}, Day ${day}, Q: ${question}, Comment: ${comment || ''}`);
+    return res.json({ success: true, persisted: false });
+  }
+
+  try {
+    const dayNumber = Number(day);
+    if (!Number.isInteger(dayNumber) || dayNumber < 1) {
+      return res.status(400).json({ error: 'Invalid day number' });
+    }
+
+    const saved = await upsertComment(classId, studentId, dayNumber, question, comment || '');
+    console.log(`[feedback] Saved comment: ${classId}/${studentId}/day${dayNumber}/${question}`);
+    res.json({ success: true, persisted: true, comment: saved });
+  } catch (error) {
+    console.error('[feedback] Error saving comment:', error);
+    res.status(500).json({ error: error.message || 'Failed to save comment' });
+  }
 });
 
 module.exports = router;

@@ -116,3 +116,19 @@ values
 on conflict (id) do update set
   drive_folder_id = excluded.drive_folder_id,
   layout = excluded.layout;
+
+create table if not exists comments (
+  id bigserial primary key,
+  class_id text not null references classes(id) on delete cascade,
+  student_id text not null references students(id) on delete cascade,
+  day_number integer not null,
+  question_label text not null,
+  comment text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_comments_unique
+  on comments(class_id, student_id, day_number, question_label);
+
+create index if not exists idx_comments_class_day
+  on comments(class_id, day_number);

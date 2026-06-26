@@ -1607,19 +1607,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 const commentCell = document.createElement('div');
                 commentCell.className = 'grading-cell comment-cell';
                 if (submission && (submission.name || submission.q)) {
+                    const existingComment = submission.comment || '';
                     commentCell.innerHTML = `
                         <div class="feedback-mini-section">
-                            <input type="text" class="feedback-input" placeholder="...">
-                            <button class="send-btn" title="Send to Sheets">
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                            <input type="text" class="feedback-input" placeholder="..." value="${escapeHtml(existingComment)}">
+                            <button class="send-btn" title="Save comment">
+                                <svg class="send-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                                <svg class="check-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                             </button>
                         </div>
                     `;
-                    // Wire feedback
                     const sendBtn = commentCell.querySelector('.send-btn');
                     const feedbackInput = commentCell.querySelector('.feedback-input');
-                    sendBtn.addEventListener('click', () => {
-                        submitFeedback(student.id, selectedDay, submission.q || getSubmissionDisplayName(submission), feedbackInput.value, sendBtn);
+                    let savedValue = existingComment;
+
+                    // Mark initially saved if there's an existing comment
+                    if (existingComment) {
+                        sendBtn.classList.add('is-saved');
+                    }
+
+                    // Track dirty state on input
+                    feedbackInput.addEventListener('input', () => {
+                        const isDirty = feedbackInput.value !== savedValue;
+                        sendBtn.classList.toggle('is-dirty', isDirty);
+                        sendBtn.classList.remove('is-saved', 'is-error');
+                    });
+
+                    // Save handler
+                    const doSave = async () => {
+                        const value = feedbackInput.value;
+                        if (value === savedValue) return;
+                        const question = submission.q || getSubmissionDisplayName(submission);
+                        const success = await submitFeedback(activeTabId, student.id, selectedDay, question, value, sendBtn);
+                        if (success) {
+                            savedValue = value;
+                            sendBtn.classList.remove('is-dirty');
+                        }
+                    };
+
+                    sendBtn.addEventListener('click', doSave);
+
+                    // Auto-save on blur
+                    feedbackInput.addEventListener('blur', doSave);
+
+                    // Save on Enter key
+                    feedbackInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            doSave();
+                        }
                     });
                 }
                 row.appendChild(commentCell);
@@ -1780,27 +1816,37 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
 
-    async function submitFeedback(studentId, day, question, notes, buttonEl) {
-        if (!notes.trim()) return;
+    async function submitFeedback(classId, studentId, day, question, comment, buttonEl) {
         buttonEl.disabled = true;
-        buttonEl.style.opacity = '0.5';
+        buttonEl.classList.add('is-saving');
+        buttonEl.classList.remove('is-saved', 'is-error');
         try {
             const response = await fetch('/api/feedback', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ studentId, day, question, notes })
+                body: JSON.stringify({ class: classId, studentId, day, question, comment })
             });
-            if (response.ok) {
-                buttonEl.style.color = '#22c55e';
-                setTimeout(() => {
-                    buttonEl.disabled = false;
-                    buttonEl.style.opacity = '1';
-                    buttonEl.style.color = '';
-                }, 2000);
-            }
-        } catch (error) {
+            if (!response.ok) throw new Error(`Save failed with ${response.status}`);
+            
+            // Clear local cache so the next reload fetches the updated comment
+            clearSubmissionCacheForDay(classId, day);
+            
+            buttonEl.classList.remove('is-saving');
+            buttonEl.classList.add('is-saved');
             buttonEl.disabled = false;
-            buttonEl.style.opacity = '1';
+            setTimeout(() => {
+                buttonEl.classList.remove('is-saved');
+            }, 2000);
+            return true;
+        } catch (error) {
+            console.error('[feedback] Save error:', error);
+            buttonEl.classList.remove('is-saving');
+            buttonEl.classList.add('is-error');
+            buttonEl.disabled = false;
+            setTimeout(() => {
+                buttonEl.classList.remove('is-error');
+            }, 2000);
+            return false;
         }
     }
 });

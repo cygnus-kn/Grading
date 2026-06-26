@@ -179,7 +179,10 @@ Verified Day 1 after recursive audio discovery:
   - Exports Google Workspace files, currently PDF or text, through the server.
 
 - `POST /api/feedback`
-  - Still mocked.
+  - Saves a comment for a specific (class, student, day, question_label) to Supabase.
+  - Body: `{ "class": "S136", "studentId": "...", "day": 18, "question": "...", "comment": "..." }`
+  - Uses upsert: re-saving overwrites the previous comment.
+  - Falls back to console logging if Supabase is not configured.
 
 ---
 
@@ -196,6 +199,10 @@ Verified Day 1 after recursive audio discovery:
 - The Submission column renders an audio player or Preview button plus a separate square Google Drive folder button.
 - Missing homework rows render blank Name, Submission, Drive-folder, and Comments boxes to preserve the table grid.
 - Preview supports audio, images, PDFs, Google Docs exported as PDF, and Drive preview/fallback links.
+- The Comments column persists per-submission comments in Supabase.
+  - Existing comments are pre-filled on load.
+  - Comments save on send-button click, Enter key, or input blur (auto-save).
+  - Visual states: dirty (blue highlight), saving (dimmed), saved (green checkmark), error (red).
 
 ---
 
@@ -224,7 +231,6 @@ If Vercel returns `days: []` from `/api/classes`, redeploy after checking Supaba
 
 ## Known Current Limitations
 
-- Feedback writing is still mocked in `/api/feedback`.
 - Audio streaming does not implement byte-range forwarding yet, so seeking into unloaded audio may be limited.
 - The Supabase sync currently supports the `student-first` layout.
 - Automated tests currently cover day-folder parsing only.
@@ -236,9 +242,9 @@ If Vercel returns `days: []` from `/api/classes`, redeploy after checking Supaba
 
 ## Suggested Next Steps
 
-1. Implement real feedback saving in Supabase or Google Sheets.
-2. Add byte-range support to `/api/audio/:fileId`.
-3. Add sync status and `last_synced_at` display in the UI.
-4. Add a small admin-only sync endpoint guard before adding more users.
-5. Add backend tests for Supabase reads, Drive fallback, file classification, and sync logic.
-6. Add OCR/text extraction for writing submissions if grading needs searchable text.
+1. Add byte-range support to `/api/audio/:fileId`.
+2. Add sync status and `last_synced_at` display in the UI.
+3. Add a small admin-only sync endpoint guard before adding more users.
+4. Add backend tests for Supabase reads, Drive fallback, file classification, sync, and comments.
+5. Add OCR/text extraction for writing submissions if grading needs searchable text.
+6. Add comment history / audit trail if edit tracking is needed.

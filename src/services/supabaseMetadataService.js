@@ -283,6 +283,43 @@ async function getSubmissionFileRows(client, submissionIds) {
   return data || [];
 }
 
+async function getCommentsForClassDay(classId, dayNumber) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('comments')
+    .select('student_id, question_label, comment, updated_at')
+    .eq('class_id', classId)
+    .eq('day_number', dayNumber);
+
+  if (error) throw error;
+
+  const commentMap = new Map();
+  (data || []).forEach(row => {
+    commentMap.set(`${row.student_id}:${row.question_label}`, row.comment);
+  });
+  return commentMap;
+}
+
+async function upsertComment(classId, studentId, dayNumber, questionLabel, comment) {
+  const client = requireSupabase();
+  const now = new Date().toISOString();
+
+  const { data, error } = await client
+    .from('comments')
+    .upsert({
+      class_id: classId,
+      student_id: studentId,
+      day_number: dayNumber,
+      question_label: questionLabel,
+      comment: comment,
+      updated_at: now,
+    }, { onConflict: 'class_id,student_id,day_number,question_label' })
+    .select();
+
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
 async function getSubmissionsFromSupabase(classId, day) {
   const client = requireSupabase();
   const dayNumber = Number(day);
@@ -319,14 +356,30 @@ async function getSubmissionsFromSupabase(classId, day) {
     submissionFilesBySubmissionId.set(file.submission_id, files);
   });
 
+  // Fetch comments for this class+day
+  let commentMap = new Map();
+  try {
+    commentMap = await getCommentsForClassDay(classId, dayNumber);
+  } catch (err) {
+    console.error('[comments] Failed to load comments, continuing without:', err.message);
+  }
+
   return students.map(student => {
     const submissionId = submissionIdByStudentId.get(student.id);
     const files = submissionId ? (submissionFilesBySubmissionId.get(submissionId) || []) : [];
+
+    // Attach comments to each file
+    const filesWithComments = files.map(file => {
+      const key = `${student.id}:${file.q || file.name || ''}`;
+      const comment = commentMap.get(key);
+      return comment !== undefined ? { ...file, comment } : file;
+    });
+
     return {
       id: student.id,
       name: student.name,
-      answers: files,
-      submissionFiles: files,
+      answers: filesWithComments,
+      submissionFiles: filesWithComments,
     };
   });
 }
@@ -653,6 +706,7 @@ module.exports = {
   detectChangedClassIds,
   getClassIdsFromSupabase,
   getClassesFromSupabase,
+  getCommentsForClassDay,
   getDaysFromSupabase,
   getSubmissionsFromSupabase,
   getSyncPageToken,
@@ -660,4 +714,5 @@ module.exports = {
   setSyncPageToken,
   syncClassDayToSupabase,
   syncClassToSupabase,
+  upsertComment,
 };
