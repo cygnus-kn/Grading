@@ -1604,61 +1604,89 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.appendChild(submissionCell);
 
                 // --- Comment Cell ---
-                const commentCell = document.createElement('div');
-                commentCell.className = 'grading-cell comment-cell';
-                if (submission && (submission.name || submission.q)) {
-                    const existingComment = submission.comment || '';
-                    commentCell.innerHTML = `
-                        <div class="feedback-mini-section">
-                            <input type="text" class="feedback-input" placeholder="..." value="${escapeHtml(existingComment)}">
-                            <button class="send-btn" title="Save comment">
-                                <svg class="send-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                                <svg class="check-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                            </button>
-                        </div>
-                    `;
-                    const sendBtn = commentCell.querySelector('.send-btn');
-                    const feedbackInput = commentCell.querySelector('.feedback-input');
-                    let savedValue = existingComment;
+                if (showStudentCell) {
+                    const commentCell = document.createElement('div');
+                    commentCell.className = 'grading-cell comment-cell';
+                    if (submission && (submission.name || submission.q)) {
+                        const existingComment = submission.comment || '';
+                        commentCell.innerHTML = `
+                            <div class="feedback-mini-section">
+                                <textarea class="feedback-input" placeholder="..." rows="1" readonly>${escapeHtml(existingComment)}</textarea>
+                                <button class="lock-toggle-btn" title="Toggle edit lock">
+                                    <svg class="lock-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="11" width="12" height="11" rx="2" ry="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+                                    <svg class="unlock-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="11" width="12" height="11" rx="2" ry="2"></rect><path d="M8 11V7a4 4 0 0 1 7.5-.5"></path></svg>
+                                </button>
+                            </div>
+                        `;
+                        const miniSection = commentCell.querySelector('.feedback-mini-section');
+                        const actionBtn = commentCell.querySelector('.lock-toggle-btn');
+                        const feedbackInput = commentCell.querySelector('.feedback-input');
+                        let savedValue = existingComment;
 
-                    // Mark initially saved if there's an existing comment
-                    if (existingComment) {
-                        sendBtn.classList.add('is-saved');
+                        const doSave = async () => {
+                            const value = feedbackInput.value;
+                            if (value === savedValue) {
+                                // Cancel edit if no change
+                                feedbackInput.readOnly = true;
+                                actionBtn.classList.remove('is-unlocked');
+                                miniSection.classList.remove('is-expanded');
+                                return;
+                            }
+                            
+                            const question = submission.q || getSubmissionDisplayName(submission);
+                            actionBtn.classList.add('is-saving');
+                            
+                            const success = await submitFeedback(activeTabId, student.id, selectedDay, question, value, actionBtn);
+                            actionBtn.classList.remove('is-saving');
+                            
+                            if (success) {
+                                savedValue = value;
+                                feedbackInput.readOnly = true;
+                                actionBtn.classList.remove('is-unlocked');
+                                miniSection.classList.remove('is-expanded');
+                            }
+                        };
+
+                        const autoResize = () => {
+                            if (!feedbackInput.readOnly) {
+                                feedbackInput.style.height = 'auto';
+                                feedbackInput.style.height = feedbackInput.scrollHeight + 'px';
+                            }
+                        };
+                        feedbackInput.addEventListener('input', autoResize);
+
+                        actionBtn.addEventListener('click', () => {
+                            if (feedbackInput.readOnly) {
+                                feedbackInput.readOnly = false;
+                                miniSection.classList.add('is-expanded');
+                                feedbackInput.focus();
+                                // Move cursor to end
+                                feedbackInput.setSelectionRange(feedbackInput.value.length, feedbackInput.value.length);
+                                actionBtn.classList.add('is-unlocked');
+                                autoResize(); // Resize to fit content
+                            } else {
+                                doSave();
+                                feedbackInput.style.height = '';
+                            }
+                        });
+
+                        feedbackInput.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                doSave();
+                                feedbackInput.style.height = '';
+                            } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                feedbackInput.value = savedValue;
+                                feedbackInput.readOnly = true;
+                                actionBtn.classList.remove('is-unlocked');
+                                miniSection.classList.remove('is-expanded');
+                                feedbackInput.style.height = '';
+                            }
+                        });
                     }
-
-                    // Track dirty state on input
-                    feedbackInput.addEventListener('input', () => {
-                        const isDirty = feedbackInput.value !== savedValue;
-                        sendBtn.classList.toggle('is-dirty', isDirty);
-                        sendBtn.classList.remove('is-saved', 'is-error');
-                    });
-
-                    // Save handler
-                    const doSave = async () => {
-                        const value = feedbackInput.value;
-                        if (value === savedValue) return;
-                        const question = submission.q || getSubmissionDisplayName(submission);
-                        const success = await submitFeedback(activeTabId, student.id, selectedDay, question, value, sendBtn);
-                        if (success) {
-                            savedValue = value;
-                            sendBtn.classList.remove('is-dirty');
-                        }
-                    };
-
-                    sendBtn.addEventListener('click', doSave);
-
-                    // Auto-save on blur
-                    feedbackInput.addEventListener('blur', doSave);
-
-                    // Save on Enter key
-                    feedbackInput.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            doSave();
-                        }
-                    });
+                    row.appendChild(commentCell);
                 }
-                row.appendChild(commentCell);
 
                 return row;
             };

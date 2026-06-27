@@ -1512,11 +1512,35 @@ body.dark-theme .scrubber-knob {
     padding: 0 6px;
 }
 
+.comment-cell {
+    position: relative;
+}
+
 .comment-cell .feedback-mini-section {
     display: flex;
     align-items: center;
     gap: 6px;
     width: 100%;
+}
+
+.comment-cell .feedback-mini-section.is-expanded {
+    position: absolute;
+    top: -8px;
+    right: 5px;
+    left: 5px;
+    z-index: 100;
+    background: var(--color-bg);
+    padding: 8px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    border: 1px solid var(--color-border);
+    align-items: flex-start;
+}
+
+body.dark-theme .comment-cell .feedback-mini-section.is-expanded {
+    background: var(--color-surface);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    border-color: var(--color-border-strong);
 }
 
 .feedback-input {
@@ -1525,9 +1549,23 @@ body.dark-theme .scrubber-knob {
     border: none;
     padding: 8px 10px;
     font-size: 13px;
+    font-family: inherit;
     outline: none;
     color: var(--color-text-primary);
     min-width: 0;
+    resize: none;
+    line-height: 1.4;
+    height: 34px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.feedback-mini-section.is-expanded .feedback-input {
+    min-height: 60px;
+    max-height: 300px;
+    white-space: normal;
+    overflow-y: auto;
 }
 
 .feedback-input::placeholder {
@@ -1535,18 +1573,29 @@ body.dark-theme .scrubber-knob {
     font-style: italic;
 }
 
-.send-btn {
+.feedback-input:read-only {
+    color: var(--color-text-secondary);
+    background: transparent;
+    cursor: default;
+}
+
+.feedback-input:read-only:focus {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.lock-toggle-btn {
     width: 30px;
     height: 30px;
     border-radius: var(--field-radius);
-    border: 1px solid var(--cell-border);
-    background: transparent;
+    border: 1px solid #ef4444; /* Locked -> Red */
+    background: rgba(239, 68, 68, 0.08);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     flex-shrink: 0;
-    color: var(--color-text-tertiary);
+    color: #ef4444;
     transition:
         transform 0.1s,
         color var(--transition-fast),
@@ -1554,72 +1603,63 @@ body.dark-theme .scrubber-knob {
         background var(--transition-fast);
 }
 
-.send-btn .send-icon { display: block; }
-.send-btn .check-icon { display: none; }
+.lock-toggle-btn .unlock-icon { display: none; }
+.lock-toggle-btn .lock-icon { display: block; }
 
-.send-btn.is-saved .send-icon { display: none; }
-.send-btn.is-saved .check-icon { display: block; }
+.lock-toggle-btn.is-unlocked .unlock-icon { display: block; }
+.lock-toggle-btn.is-unlocked .lock-icon { display: none; }
 
-.send-btn.is-saved {
+.lock-toggle-btn.is-unlocked {
     color: #22c55e;
     border-color: #22c55e;
     background: rgba(34, 197, 94, 0.08);
 }
 
-.send-btn.is-dirty {
-    color: var(--color-accent);
-    border-color: var(--color-accent);
-    background: var(--color-accent-light);
-}
-
-.send-btn.is-saving {
+.lock-toggle-btn.is-saving {
     opacity: 0.5;
     pointer-events: none;
 }
 
-.send-btn.is-error {
+.lock-toggle-btn.is-error {
     color: #ef4444;
     border-color: #ef4444;
-    background: rgba(239, 68, 68, 0.08);
+    background: rgba(239, 68, 68, 0.3);
 }
 
-.send-btn:hover {
-    color: var(--color-accent);
-    border-color: var(--color-accent);
-    background: var(--color-accent-light);
+.feedback-mini-section.is-expanded .lock-toggle-btn {
+    margin-top: 2px;
 }
 
-.send-btn:active {
-    transform: scale(0.9);
+.lock-toggle-btn:hover {
+    background: rgba(239, 68, 68, 0.15);
 }
 
-body.dark-theme .send-btn {
-    border-color: var(--field-border);
-    color: rgba(255, 255, 255, 0.4);
+.lock-toggle-btn.is-unlocked:hover {
+    background: rgba(34, 197, 94, 0.15);
 }
 
-body.dark-theme .send-btn:hover {
-    color: var(--color-accent);
-    border-color: var(--color-accent);
-    background: rgba(56, 189, 248, 0.1);
+.lock-toggle-btn:active {
+    transform: scale(0.95);
 }
 
-body.dark-theme .send-btn.is-saved {
-    color: #22c55e;
-    border-color: #22c55e;
-    background: rgba(34, 197, 94, 0.1);
+body.dark-theme .lock-toggle-btn {
+    border-color: #f87171;
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.15);
 }
 
-body.dark-theme .send-btn.is-dirty {
-    color: var(--color-accent);
-    border-color: var(--color-accent);
-    background: rgba(56, 189, 248, 0.1);
+body.dark-theme .lock-toggle-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
 }
 
-body.dark-theme .send-btn.is-error {
-    color: #ef4444;
-    border-color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
+body.dark-theme .lock-toggle-btn.is-unlocked {
+    color: #4ade80;
+    border-color: #4ade80;
+    background: rgba(34, 197, 94, 0.15);
+}
+
+body.dark-theme .lock-toggle-btn.is-unlocked:hover {
+    background: rgba(34, 197, 94, 0.25);
 }
 
 .hidden,
