@@ -1611,7 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const existingComment = submission.comment || '';
                         commentCell.innerHTML = `
                             <div class="feedback-mini-section">
-                                <textarea class="feedback-input" placeholder="..." rows="1" readonly>${escapeHtml(existingComment)}</textarea>
+                                <textarea class="feedback-input" placeholder="" rows="1" readonly>${escapeHtml(existingComment)}</textarea>
                                 <button class="lock-toggle-btn" title="Toggle edit lock">
                                     <svg class="lock-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="11" width="12" height="11" rx="2" ry="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
                                     <svg class="unlock-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="11" width="12" height="11" rx="2" ry="2"></rect><path d="M8 11V7a4 4 0 0 1 7.5-.5"></path></svg>
