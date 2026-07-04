@@ -4,9 +4,9 @@
 // Cache: classId -> { days: [{ day: N }], loaded: bool }
 const CLASSES_DATA = {
     'S141': { days: [], loaded: false },
+    'S139': { days: [], loaded: false },
     'S133': { days: [], loaded: false },
     'S136': { days: [], loaded: false },
-    'S139': { days: [], loaded: false },
 };
 
 const DEFAULT_TABS = [];
