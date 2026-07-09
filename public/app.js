@@ -125,6 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderSidebar() {
         let html = '';
         const sortedEntries = Object.entries(CLASSES_DATA).sort(([a], [b]) => {
+            if (a === 'S139') return -1;
+            if (b === 'S139') return 1;
             if (a === 'S141') return -1;
             if (b === 'S141') return 1;
 
