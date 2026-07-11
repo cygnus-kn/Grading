@@ -124,11 +124,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderSidebar() {
         let html = '';
+        // Define the arbitrary sort order here
+        const order = ['S139', 'S141', 'S133', 'S136'];
         const sortedEntries = Object.entries(CLASSES_DATA).sort(([a], [b]) => {
-            if (a === 'S139') return -1;
-            if (b === 'S139') return 1;
-            if (a === 'S141') return -1;
-            if (b === 'S141') return 1;
+            const idxA = order.indexOf(a);
+            const idxB = order.indexOf(b);
+            
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
 
             return a.localeCompare(b);
         });
